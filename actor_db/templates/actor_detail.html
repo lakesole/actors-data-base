@@ -1,0 +1,498 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="detail-top">
+  <a class="back"
+   href="/?q={{ q | urlencode }}&m={{ m | urlencode }}&ai_query={{ ai_query | urlencode }}&gender={{ gender | urlencode }}&height_group={{ height_group | urlencode }}&birth_group={{ birth_group | urlencode }}&sort={{ sort | urlencode }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 20 }}&status_filter={{ status_filter | urlencode }}&lesson_id={{ lesson_id | urlencode }}">
+  ← 목록으로
+</a>
+
+  <div class="actions">
+   {% if current_user and current_user['role'] in ['admin', 'staff'] %}
+      <a class="btn"
+        href="/actors/{{ actor['id'] }}/edit?q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 20 }}&status_filter={{ status_filter or '' }}">
+        배우정보 수정
+      </a>
+
+    {% if current_user and current_user['role'] == 'admin' %}
+    <form class="inline" method="post" action="/actors/{{ actor['id'] }}/delete"
+          onsubmit="return confirm('정말 삭제할까요? 삭제 후 복구가 어렵습니다.');">
+      <button class="btn danger" type="submit">배우 삭제</button>
+    </form>
+    {% endif %}
+
+  {% endif %}   
+  </div>
+</div>
+
+<div class="detail">
+  <!-- LEFT -->
+  <div class="detail-left">
+    <div class="detail-photo">
+      {% if actor['photo_path'] %}
+       <img src="{{ actor['photo_path'] }}" alt="{{ actor['name'] }}" loading="eager" decoding="async">
+      {% else %}
+        <img src="/static/images/no_profile.png" alt="사진 없음" loading="eager" decoding="async">
+      {% endif %}
+    </div>
+
+    {% if current_user and current_user['role'] in ['admin', 'staff'] %}
+    <form class="upload-card" method="post" action="/actors/{{ actor['id'] }}/edit" enctype="multipart/form-data">
+      <div class="upload-title">프로필 사진 빠른 업로드</div>
+      <div class="upload-row">
+        <input class="file" type="file" name="photo" accept="image/*" required>
+
+        <!-- hidden: 기존 값 유지 -->
+        <input type="hidden" name="name" value="{{ actor['name'] }}">
+        <input type="hidden" name="birth_year" value="{{ actor['birth_year'] if actor['birth_year'] else '' }}">
+        <input type="hidden" name="height_cm" value="{{ actor['height_cm'] if actor['height_cm'] else '' }}">
+        <input type="hidden" name="weight_kg" value="{{ actor['weight_kg'] if actor['weight_kg'] else '' }}">
+        <input type="hidden" name="school" value="{{ actor['school'] if actor['school'] else '' }}">
+        <input type="hidden" name="hobby" value="{{ actor['hobby'] if actor['hobby'] else '' }}">
+        <input type="hidden" name="specialty" value="{{ actor['specialty'] if actor['specialty'] else '' }}">
+        <input type="hidden" name="contract_date" value="{{ actor['contract_date'] if actor['contract_date'] else '' }}">
+        <input type="hidden" name="contract_end_date" value="{{ actor['contract_end_date'] if actor['contract_end_date'] else '' }}">
+        <input type="hidden" name="manager_name" value="{{ actor['manager_name'] if actor['manager_name'] else '' }}">
+        <input type="hidden" name="bio" value="{{ actor['bio'] if actor['bio'] else '' }}">
+        <input type="hidden" name="teacher_user_id" value="{{ actor['teacher_user_id'] if actor['teacher_user_id'] else '' }}">
+
+        
+
+        <input type="hidden" name="q" value="{{ q or '' }}">
+        <input type="hidden" name="m" value="{{ m or '' }}">
+        <input type="hidden" name="ai_query" value="{{ ai_query or '' }}">
+        <input type="hidden" name="gender_filter" value="{{ gender or '' }}">
+        <input type="hidden" name="height_group" value="{{ height_group or '' }}">
+        <input type="hidden" name="birth_group" value="{{ birth_group or '' }}">
+        <input type="hidden" name="sort" value="{{ sort or '' }}">
+        <input type="hidden" name="view" value="{{ view or 'card' }}">
+        <input type="hidden" name="page" value="{{ page or 1 }}">
+        <input type="hidden" name="per_page" value="{{ per_page or 20 }}">
+        <input type="hidden" name="status_filter" value="{{ status_filter or '' }}">
+        <input type="hidden" name="lesson_id" value="{{ lesson_id or '' }}">
+
+        <button class="btn primary" type="submit">업로드</button>
+      </div>
+      <div class="upload-hint">jpg/png/webp 권장</div>
+    </form>
+    {% endif %}
+
+    <div class="detail-card detail-profile-card">
+  <div class="detail-profile-head">
+    <div class="detail-profile-title-wrap">
+      <div class="detail-profile-overline">DAMACTORS ENT · ACTOR PROFILE</div>
+
+      <div class="detail-profile-name-row">
+        <h1 class="detail-profile-name">{{ actor['name'] }}</h1>
+
+        <span class="detail-profile-status {{ actor['contract_status'] }}">
+          {{ actor['contract_status_label'] }}
+        </span>
+      </div>
+
+      <div class="detail-profile-manager">
+        <span>담당 매니저 · {{ actor['manager_name'] if actor['manager_name'] else '미지정' }}</span>
+        <span>담당 선생님 · {{ actor['teacher_user_name'] if actor['teacher_user_name'] else '미지정' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail-profile-chips">
+    <div class="detail-profile-chip">
+      <span class="label">성별</span>
+      <strong>{{ actor['gender'] if actor['gender'] else '-' }}</strong>
+    </div>
+
+    <div class="detail-profile-chip">
+      <span class="label">년생</span>
+      <strong>
+        {{ actor['birth_year'] if actor['birth_year'] else '-' }}{% if actor['birth_year'] %}년생{% endif %}
+      </strong>
+    </div>
+
+    <div class="detail-profile-chip">
+      <span class="label">키</span>
+      <strong>
+        {{ "%.0f"|format(actor['height_cm']) if actor['height_cm'] else "-" }}{% if actor['height_cm'] %}cm{% endif %}
+      </strong>
+    </div>
+
+    <div class="detail-profile-chip">
+      <span class="label">몸무게</span>
+      <strong>
+        {{ "%.0f"|format(actor['weight_kg']) if actor['weight_kg'] else "-" }}{% if actor['weight_kg'] %}kg{% endif %}
+      </strong>
+    </div>
+  </div>
+
+  <div class="detail-profile-grid">
+    <div class="detail-profile-info-card">
+      <div class="k">학교</div>
+      <div class="v">{{ actor['school'] if actor['school'] else '-' }}</div>
+    </div>
+
+    <div class="detail-profile-info-card">
+      <div class="k">취미</div>
+      <div class="v">{{ actor['hobby'] if actor['hobby'] else '-' }}</div>
+    </div>
+
+    <div class="detail-profile-info-card detail-profile-info-card-wide">
+      <div class="k">특기</div>
+      <div class="v">{{ actor['specialty'] if actor['specialty'] else '-' }}</div>
+    </div>
+
+    <div class="detail-profile-info-card">
+      <div class="k">계약 시작</div>
+      <div class="v">{{ actor['contract_date'] if actor['contract_date'] else '-' }}</div>
+    </div>
+
+    <div class="detail-profile-info-card">
+      <div class="k">계약 만료</div>
+      <div class="v">{{ actor['contract_end_date'] if actor['contract_end_date'] else '-' }}</div>
+    </div>
+  </div>
+
+  <div class="detail-profile-memo">
+    <div class="detail-profile-memo-title">메모</div>
+    {% if actor['bio'] %}
+      <p class="detail-profile-memo-text">{{ actor['bio'] }}</p>
+    {% else %}
+      <p class="muted">내용 없음</p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+  <!-- RIGHT -->
+  <div class="detail-right">
+
+    {% set t = tab if tab else 'compcard' %}
+
+   <div class="tabs">
+  {% if current_user and current_user['role'] == 'teacher' %}
+    <a class="tab-btn active"
+       href="/actors/{{ actor['id'] }}?tab=classlog&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      트레이닝 피드백
+    </a>
+  {% else %}
+    <a class="tab-btn {% if t=='compcard' %}active{% endif %}"
+       href="/actors/{{ actor['id'] }}?tab=compcard&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      컴카드
+    </a>
+
+    <a class="tab-btn {% if t=='classlog' %}active{% endif %}"
+       href="/actors/{{ actor['id'] }}?tab=classlog&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      트레이닝 피드백
+    </a>
+
+    <a class="tab-btn {% if t=='auditions' %}active{% endif %}"
+       href="/actors/{{ actor['id'] }}?tab=auditions&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      오디션
+    </a>
+
+    <a class="tab-btn {% if t=='video' %}active{% endif %}"
+       href="/actors/{{ actor['id'] }}?tab=video&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      연기영상
+    </a>
+
+    <a class="tab-btn {% if t=='first_meeting' %}active{% endif %}"
+       href="/actors/{{ actor['id'] }}?tab=first_meeting&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      방향성 및 특이사항
+    </a>
+
+    <a class="tab-btn {% if t=='casting_management' %}active{% endif %}"
+       href="/actors/{{ actor['id'] }}?tab=casting_management&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      캐스팅관리
+    </a>
+
+    <a class="tab-btn {% if t=='casting_meetings' %}active{% endif %}"
+       href="/actors/{{ actor['id'] }}?tab=casting_meetings&q={{ q or '' }}&m={{ m or '' }}&ai_query={{ ai_query or '' }}&gender={{ gender or '' }}&height_group={{ height_group or '' }}&birth_group={{ birth_group or '' }}&sort={{ sort or '' }}&view={{ view or 'card' }}&page={{ page or 1 }}&per_page={{ per_page or 24 }}&status_filter={{ status_filter or '' }}&lesson_id={{ lesson_id or '' }}">
+      캐스팅 미팅
+    </a>
+  {% endif %}
+</div>
+
+    {% if t == "compcard" %}
+
+      <div class="panel-card">
+        <div class="tab-top">
+          <div class="panel-title">컴카드 미리보기</div>
+        </div>
+
+        {% if actor['compcard_path'] %}
+          <div class="preview">
+            {% if actor['compcard_path'] and actor['compcard_path'].lower().endswith('.pdf') %}
+              <iframe class="pdf" src="{{ actor['compcard_path'] }}#toolbar=1&navpanes=0&view=FitH"></iframe>
+            {% elif actor['compcard_preview_path'] %}
+              <img class="preview-img" src="{{ actor['compcard_preview_path'] }}" alt="컴카드 미리보기">
+            {% else %}
+              <img class="preview-img" src="{{ actor['compcard_path'] }}" alt="컴카드">
+            {% endif %}
+          </div>
+
+          <div style="margin-top:10px;">
+            <a class="btn" href="{{ actor['compcard_path'] }}" download>컴카드 다운로드</a>
+          </div>
+        {% else %}
+          <p class="muted">업로드된 컴카드가 없습니다.</p>
+        {% endif %}
+
+        {% if current_user and current_user['role'] in ['admin', 'staff'] %}
+        <form class="upload-inline" method="post" action="/actors/{{ actor['id'] }}/edit" enctype="multipart/form-data">
+          <input class="file" type="file" name="compcard" accept=".pdf,image/*,.ppt,.pptx" required>
+
+          <input type="hidden" name="name" value="{{ actor['name'] }}">
+          <input type="hidden" name="birth_year" value="{{ actor['birth_year'] if actor['birth_year'] else '' }}">
+          <input type="hidden" name="height_cm" value="{{ actor['height_cm'] if actor['height_cm'] else '' }}">
+          <input type="hidden" name="weight_kg" value="{{ actor['weight_kg'] if actor['weight_kg'] else '' }}">
+          <input type="hidden" name="school" value="{{ actor['school'] if actor['school'] else '' }}">
+          <input type="hidden" name="hobby" value="{{ actor['hobby'] if actor['hobby'] else '' }}">
+          <input type="hidden" name="specialty" value="{{ actor['specialty'] if actor['specialty'] else '' }}">
+          <input type="hidden" name="contract_date" value="{{ actor['contract_date'] if actor['contract_date'] else '' }}">
+          <input type="hidden" name="manager_name" value="{{ actor['manager_name'] if actor['manager_name'] else '' }}">
+          <input type="hidden" name="bio" value="{{ actor['bio'] if actor['bio'] else '' }}">
+          <input type="hidden" name="contract_end_date" value="{{ actor['contract_end_date'] if actor['contract_end_date'] else '' }}">
+          <input type="hidden" name="teacher_user_id" value="{{ actor['teacher_user_id'] if actor['teacher_user_id'] else '' }}">
+
+          <input type="hidden" name="q" value="{{ q or '' }}">
+          <input type="hidden" name="m" value="{{ m or '' }}">
+          <input type="hidden" name="ai_query" value="{{ ai_query or '' }}">
+          <input type="hidden" name="gender_filter" value="{{ gender or '' }}">
+          <input type="hidden" name="height_group" value="{{ height_group or '' }}">
+          <input type="hidden" name="birth_group" value="{{ birth_group or '' }}">
+          <input type="hidden" name="sort" value="{{ sort or '' }}">
+          <input type="hidden" name="view" value="{{ view or 'card' }}">
+          <input type="hidden" name="page" value="{{ page or 1 }}">
+          <input type="hidden" name="per_page" value="{{ per_page or 20 }}">
+          <input type="hidden" name="status_filter" value="{{ status_filter or '' }}">
+
+          <button class="btn primary" type="submit">컴카드 업로드</button>
+          <div class="upload-hint">pdf / 이미지 / ppt / pptx 업로드 가능 (ppt는 첫 장 미리보기 자동 생성)</div>
+        </form>
+        {% endif %}
+      </div>
+
+    {% elif t == "classlog" %}
+
+      <div class="panel-card">
+        <div class="tab-top">
+          <div class="panel-title">트레이닝 피드백</div>
+          <a class="btn primary" href="/actors/{{ actor['id'] }}/classlogs/new">+ 추가</a>
+        </div>
+
+        {% if class_logs and (class_logs|length > 0) %}
+          <div class="items">
+            {% for it in class_logs %}
+              <div class="item">
+                <div class="item-main">
+                  <div class="item-date">{{ it['meet_date'] }}</div>
+                  <div class="item-text">{{ it['content'] }}</div>
+                </div>
+                <div class="item-actions">
+                  <a class="btn sm" href="/actors/{{ actor['id'] }}/classlogs/{{ it['id'] }}/edit">수정</a>
+                  {% if current_user and current_user['role'] in ['admin', 'staff'] %}
+                  <form class="inline" method="post" action="/actors/{{ actor['id'] }}/classlogs/{{ it['id'] }}/delete"
+                        onsubmit="return confirm('이 항목을 삭제할까요?');">
+                    <button class="btn sm danger" type="submit">삭제</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">아직 수업일지 항목이 없습니다.</p>
+        {% endif %}
+      </div>
+
+    {% elif t == "auditions" %}
+
+      <div class="panel-card">
+        <div class="tab-top">
+          <div class="panel-title">오디션 영상</div>
+          <a class="btn primary" href="/actors/{{ actor['id'] }}/auditions/new">+ 추가</a>
+        </div>
+
+        {% if auditions and (auditions|length > 0) %}
+          <div class="items">
+            {% for it in auditions %}
+              <div class="item">
+                <div class="item-main">
+                  <div class="item-date">{{ it['aud_date'] }}</div>
+                  <div class="item-text">{{ it['content'] }}</div>
+                </div>
+                <div class="item-actions">
+                  <a class="btn sm" href="/actors/{{ actor['id'] }}/auditions/{{ it['id'] }}/edit">수정</a>
+                  <form class="inline" method="post" action="/actors/{{ actor['id'] }}/auditions/{{ it['id'] }}/delete"
+                        onsubmit="return confirm('이 항목을 삭제할까요?');">
+                    <button class="btn sm danger" type="submit">삭제</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">아직 오디션 항목이 없습니다.</p>
+        {% endif %}
+      </div>
+
+    {% elif t == "video" %}
+
+      <div class="panel-card">
+        <div class="tab-top">
+          <div class="panel-title">연기영상 (누적)</div>
+        </div>
+
+        {% if acting_videos and (acting_videos|length > 0) %}
+          <div class="video-list">
+            {% for v in acting_videos %}
+              <div class="video-item">
+                <div class="video-head">
+                  <div class="video-name">{{ v['original_name'] if v['original_name'] else 'video' }}</div>
+                  <form class="inline" method="post" action="/actors/{{ actor['id'] }}/videos/{{ v['id'] }}/delete"
+                        onsubmit="return confirm('이 영상을 삭제할까요?');">
+                    <button class="btn sm danger" type="submit">삭제</button>
+                  </form>
+                </div>
+                <video class="video" controls src="{{ v['video_path'] }}"></video>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">업로드된 연기영상이 없습니다.</p>
+        {% endif %}
+
+        {% if current_user and current_user['role'] in ['admin', 'staff'] %}
+        <form class="upload-inline" method="post" action="/actors/{{ actor['id'] }}/edit" enctype="multipart/form-data">
+          <input class="file" type="file" name="acting_videos" accept="video/*" multiple required>
+
+          <input type="hidden" name="name" value="{{ actor['name'] }}">
+          <input type="hidden" name="birth_year" value="{{ actor['birth_year'] if actor['birth_year'] else '' }}">
+          <input type="hidden" name="height_cm" value="{{ actor['height_cm'] if actor['height_cm'] else '' }}">
+          <input type="hidden" name="weight_kg" value="{{ actor['weight_kg'] if actor['weight_kg'] else '' }}">
+          <input type="hidden" name="school" value="{{ actor['school'] if actor['school'] else '' }}">
+          <input type="hidden" name="hobby" value="{{ actor['hobby'] if actor['hobby'] else '' }}">
+          <input type="hidden" name="specialty" value="{{ actor['specialty'] if actor['specialty'] else '' }}">
+          <input type="hidden" name="contract_date" value="{{ actor['contract_date'] if actor['contract_date'] else '' }}">
+          <input type="hidden" name="manager_name" value="{{ actor['manager_name'] if actor['manager_name'] else '' }}">
+          <input type="hidden" name="bio" value="{{ actor['bio'] if actor['bio'] else '' }}">
+          <input type="hidden" name="teacher_user_id" value="{{ actor['teacher_user_id'] if actor['teacher_user_id'] else '' }}">
+          <input type="hidden" name="contract_end_date" value="{{ actor['contract_end_date'] if actor['contract_end_date'] else '' }}">
+
+          <input type="hidden" name="q" value="{{ q or '' }}">
+          <input type="hidden" name="m" value="{{ m or '' }}">
+          <input type="hidden" name="ai_query" value="{{ ai_query or '' }}">
+          <input type="hidden" name="gender_filter" value="{{ gender or '' }}">
+          <input type="hidden" name="height_group" value="{{ height_group or '' }}">
+          <input type="hidden" name="birth_group" value="{{ birth_group or '' }}">
+          <input type="hidden" name="sort" value="{{ sort or '' }}">
+          <input type="hidden" name="view" value="{{ view or 'card' }}">
+          <input type="hidden" name="page" value="{{ page or 1 }}">
+          <input type="hidden" name="per_page" value="{{ per_page or 20 }}">
+          <input type="hidden" name="status_filter" value="{{ status_filter or '' }}">
+
+          <button class="btn primary" type="submit">연기영상 업로드</button>
+          <div class="upload-hint">여러 개 선택 가능 / 기존 영상은 삭제되지 않고 계속 누적됩니다.</div>
+        </form>
+        {% endif %}
+      </div>
+
+    {% elif t == "casting_management" %}
+
+      <div class="panel-card">
+        <div class="tab-top">
+          <div class="panel-title">캐스팅관리 기록</div>
+          <a class="btn primary" href="/actors/{{ actor['id'] }}/casting-management/new">+ 추가</a>
+        </div>
+
+        {% if casting_management_logs and (casting_management_logs|length > 0) %}
+          <div class="items">
+            {% for it in casting_management_logs %}
+              <div class="item">
+                <div class="item-main">
+                  <div class="item-date">{{ it['meet_date'] }}</div>
+                  <div class="item-text">{{ it['content'] }}</div>
+                </div>
+                <div class="item-actions">
+                  <a class="btn sm" href="/actors/{{ actor['id'] }}/casting-management/{{ it['id'] }}/edit">수정</a>
+                  <form class="inline" method="post" action="/actors/{{ actor['id'] }}/casting-management/{{ it['id'] }}/delete"
+                        onsubmit="return confirm('이 항목을 삭제할까요?');">
+                    <button class="btn sm danger" type="submit">삭제</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">아직 캐스팅관리 기록이 없습니다.</p>
+        {% endif %}
+      </div>
+
+    {% elif t == "casting_meetings" %}
+
+      <div class="panel-card">
+        <div class="tab-top">
+          <div class="panel-title">캐스팅 미팅 기록</div>
+          <a class="btn primary" href="/actors/{{ actor['id'] }}/casting-meetings/new">+ 추가</a>
+        </div>
+
+        {% if casting_meetings and (casting_meetings|length > 0) %}
+          <div class="items">
+            {% for it in casting_meetings %}
+              <div class="item">
+                <div class="item-main">
+                  <div class="item-date">{{ it['meet_date'] }}</div>
+                  <div class="item-text">{{ it['content'] }}</div>
+                </div>
+                <div class="item-actions">
+                  <a class="btn sm" href="/actors/{{ actor['id'] }}/casting-meetings/{{ it['id'] }}/edit">수정</a>
+                  <form class="inline" method="post" action="/actors/{{ actor['id'] }}/casting-meetings/{{ it['id'] }}/delete"
+                        onsubmit="return confirm('이 항목을 삭제할까요?');">
+                    <button class="btn sm danger" type="submit">삭제</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">아직 캐스팅 미팅 기록이 없습니다.</p>
+        {% endif %}
+      </div>
+
+    {% elif t == "first_meeting" %}
+
+      <div class="panel-card">
+        <div class="tab-top">
+          <div class="panel-title">방향성 및 특이사항</div>
+          <a class="btn primary" href="/actors/{{ actor['id'] }}/first-meetings/new">+ 추가</a>
+        </div>
+
+        {% if first_meetings and (first_meetings|length > 0) %}
+          <div class="items">
+            {% for it in first_meetings %}
+              <div class="item">
+                <div class="item-main">
+                  <div class="item-date">{{ it['meet_date'] }}</div>
+                  <div class="item-text">{{ it['content'] }}</div>
+                </div>
+                <div class="item-actions">
+                  <a class="btn sm" href="/actors/{{ actor['id'] }}/first-meetings/{{ it['id'] }}/edit">수정</a>
+                  <form class="inline" method="post" action="/actors/{{ actor['id'] }}/first-meetings/{{ it['id'] }}/delete"
+                        onsubmit="return confirm('이 항목을 삭제할까요?');">
+                    <button class="btn sm danger" type="submit">삭제</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">아직 기록이 없습니다.</p>
+        {% endif %}
+      </div>
+
+    {% endif %}
+
+  </div>
+</div>
+
+{% endblock %}

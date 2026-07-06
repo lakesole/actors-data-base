@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="detail-top">
+  <a class="back" href="/">← 목록으로</a>
+</div>
+
+<div class="form-wrap">
+  <h1 class="form-title">배우 추가</h1>
+
+  <form class="form" method="post" action="/actors/new" enctype="multipart/form-data">
+    <div class="grid-form">
+      <div class="field">
+        <label>이름 *</label>
+        <input type="text" name="name" required placeholder="예: 김철수">
+      </div>
+
+      <div class="field">
+        <label>담당 매니저</label>
+        <input type="text" name="manager_name" placeholder="예: 곽다윗">
+      </div>
+
+      <div class="field">
+        <label>담당 선생님</label>
+        <select name="teacher_user_id">
+          <option value="">미지정</option>
+          {% for t in teacher_users %}
+            <option value="{{ t['id'] }}">
+              {{ t['display_name'] }}
+              {% if t['lesson_subject'] %} · {{ t['lesson_subject'] }}{% endif %}
+              {% if t['lesson_days'] %} ({{ t['lesson_days'] }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+       <div class="field">
+        <label>전화번호 뒤 4자리</label>
+        <input
+          type="text"
+          name="phone_last4"
+          inputmode="numeric"
+          maxlength="4"
+          placeholder="예: 1234"
+          oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0,4)">
+      </div>
+
+      <div class="field">
+        <label>성별</label>
+        <select name="gender">
+          <option value="">선택</option>
+          <option value="남자">남자</option>
+          <option value="여자">여자</option>
+        </select>
+      </div>
+
+      <div class="field year-field">
+        <label>년생</label>
+        <input
+          type="text"
+          name="birth_year"
+          inputmode="numeric"
+          maxlength="4"
+          minlength="4"
+          placeholder="예: 1998"
+          pattern="[0-9]{4}"
+          oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0,4)">
+      </div>
+
+      <div class="field">
+        <label>키(cm)</label>
+        <input type="number" step="0.1" name="height_cm" placeholder="예: 178">
+      </div>
+
+      <div class="field">
+        <label>몸무게(kg)</label>
+        <input type="number" step="0.1" name="weight_kg" placeholder="예: 70">
+      </div>
+
+      <div class="field">
+        <label>학교</label>
+        <input type="text" name="school" placeholder="예: 한예종 연기과">
+      </div>
+
+      <div class="field">
+        <label>취미</label>
+        <input type="text" name="hobby" placeholder="예: 헬스, 농구">
+      </div>
+
+      <div class="field full">
+        <label>특기</label>
+        <input type="text" name="specialty" placeholder="예: 액션, 노래, 중국어">
+      </div>
+
+      <div class="field date-field">
+        <label>계약 시작일</label>
+        <input
+          type="text"
+          class="date-text"
+          id="contract_date"
+          name="contract_date"
+          inputmode="numeric"
+          maxlength="10"
+          placeholder="YYYY-MM-DD">
+      </div>
+
+      <div class="field date-field">
+        <label>계약 만료일</label>
+        <input
+          type="text"
+          class="date-text"
+          id="contract_end_date"
+          name="contract_end_date"
+          inputmode="numeric"
+          maxlength="10"
+          placeholder="YYYY-MM-DD">
+      </div>
+
+      <div class="field full">
+        <label>메모</label>
+        <textarea name="bio" rows="4" placeholder="메모를 입력하세요"></textarea>
+      </div>
+    </div>
+
+    <div class="upload-block">
+      <div class="upload-title">파일 관리 (선택)</div>
+
+      <div class="upload-row upload-row-3">
+        <div class="u">
+          <div class="u-label">프로필 사진</div>
+          <input class="file" type="file" name="photo" accept="image/*">
+        </div>
+
+        <div class="u">
+          <div class="u-label">컴카드 (PDF/이미지/PPT/PPTX)</div>
+          <input class="file" type="file" name="compcard" accept=".pdf,image/*,.ppt,.pptx">
+        </div>
+
+        <div class="u">
+          <div class="u-label">연기영상 (여러 개 가능)</div>
+          <input class="file" type="file" name="acting_videos" accept="video/*" multiple>
+        </div>
+      </div>
+
+      <div class="upload-hint">연기영상은 누적 저장됩니다.</div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn primary" type="submit">저장</button>
+      <a class="btn" href="/">취소</a>
+    </div>
+  </form>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.querySelector(".form");
+  const birthYearInput = document.querySelector('input[name="birth_year"]');
+  const contractDateInput = document.getElementById("contract_date");
+  const contractEndDateInput = document.getElementById("contract_end_date");
+
+  function formatDateInput(el) {
+    if (!el) return;
+    el.addEventListener("input", function () {
+      let v = this.value.replace(/[^0-9]/g, "").slice(0, 8);
+      if (v.length >= 5) {
+        v = v.slice(0, 4) + "-" + v.slice(4);
+      }
+      if (v.length >= 8) {
+        v = v.slice(0, 7) + "-" + v.slice(7);
+      }
+      this.value = v;
+      updateContractEndDate();
+    });
+  }
+
+  function updateContractEndDate() {
+    const value = contractDateInput.value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      contractEndDateInput.value = "";
+      return;
+    }
+
+    const startDate = new Date(value);
+    if (isNaN(startDate.getTime())) {
+      contractEndDateInput.value = "";
+      return;
+    }
+
+    const endDate = new Date(startDate);
+    endDate.setFullYear(endDate.getFullYear() + 1);
+    endDate.setDate(endDate.getDate() - 1);
+
+    const y = endDate.getFullYear();
+    const m = String(endDate.getMonth() + 1).padStart(2, "0");
+    const d = String(endDate.getDate()).padStart(2, "0");
+    contractEndDateInput.value = `${y}-${m}-${d}`;
+  }
+
+  formatDateInput(contractDateInput);
+  formatDateInput(contractEndDateInput);
+
+  if (form && birthYearInput) {
+    form.addEventListener("submit", function () {
+      birthYearInput.value = birthYearInput.value.replace(/[^0-9]/g, "").slice(0, 4);
+      if (contractDateInput) {
+        contractDateInput.value = contractDateInput.value.replace(/[^0-9-]/g, "").slice(0, 10);
+      }
+      if (contractEndDateInput) {
+        contractEndDateInput.value = contractEndDateInput.value.replace(/[^0-9-]/g, "").slice(0, 10);
+      }
+    });
+  }
+});
+</script>
+
+{% endblock %}

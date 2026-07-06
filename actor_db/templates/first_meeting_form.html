@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="detail-top" style="margin-bottom:14px;">
+  <a class="back" href="/actors/{{ actor_id }}?tab=first_meeting">← 뒤로</a>
+</div>
+
+<div class="panel-card" style="max-width:720px;">
+  <div class="panel-title" style="margin-bottom:12px;">
+    {% if mode == "new" %}첫 미팅 기록 추가{% else %}첫 미팅 기록 수정{% endif %}
+  </div>
+
+  <form method="post">
+    <div class="form-grid" style="display:grid; gap:12px;">
+      <label>
+        <div class="muted" style="margin-bottom:6px;">날짜</div>
+        <input
+          class="input"
+          type="date"
+          name="meet_date"
+          required
+          value="{{ item['meet_date'] if item else '' }}"
+          min="1900-01-01"
+          max="2099-12-31"
+          oninvalid="this.setCustomValidity('날짜를 다시 확인해주세요. 연도는 4자리여야 합니다.')"
+          oninput="this.setCustomValidity('')">
+      </label>
+
+      <label>
+        <div class="muted" style="margin-bottom:6px;">내용</div>
+        <textarea class="input" name="content" rows="6" required style="width:100%;">{{ item['content'] if item else '' }}</textarea>
+      </label>
+
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <a class="btn" href="/actors/{{ actor_id }}?tab=first_meeting">취소</a>
+        <button class="btn primary" type="submit">{% if mode == "new" %}추가{% else %}저장{% endif %}</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

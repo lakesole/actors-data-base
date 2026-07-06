@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>태블릿 출결</title>
+  <style>
+    :root{
+      --bg:#f5f5f7;
+      --card:#ffffff;
+      --card-soft:#fafafa;
+      --line:#e5e5ea;
+      --text:#111111;
+      --sub:#6e6e73;
+      --key:#ffffff;
+      --key-dark:#f0f1f4;
+      --shadow:0 10px 30px rgba(0,0,0,0.06);
+      --shadow-soft:0 4px 14px rgba(0,0,0,0.05);
+      --radius-xl:32px;
+      --radius-lg:24px;
+      --radius-md:18px;
+    }
+
+    *{ box-sizing:border-box; }
+
+    html, body{
+      margin:0;
+      padding:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      min-height:100%;
+    }
+
+    body{
+      padding:4px;
+    }
+
+    .wrap{
+      width:100%;
+      max-width:1200px;
+      margin:0 auto;
+    }
+
+    .hero{
+      margin-bottom:6px;
+    }
+
+    .title{
+      font-size:42px;
+      line-height:1.05;
+      font-weight:800;
+      letter-spacing:-0.04em;
+      margin:0 0 10px 0;
+    }
+
+    .sub{
+      font-size:14px;
+      color:var(--sub);
+      line-height:1.2;
+      margin:0;
+    }
+
+   .date-card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:20px;
+      padding:10px 14px;
+      box-shadow:var(--shadow-soft);
+      display:inline-flex;
+      flex-direction:column;
+      gap:2px;
+      margin-bottom:8px;
+      min-width:160px;
+    }
+
+    .date-card .label{
+      font-size:14px;
+      color:var(--sub);
+      font-weight:600;
+    }
+
+    .date-card .value{
+      font-size:24px;
+      font-weight:800;
+      letter-spacing:-0.03em;
+    }
+
+    .main-card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:24px;
+      padding:10px;
+      box-shadow:var(--shadow);
+    }
+
+    .screen{
+      background:var(--card-soft);
+      border:1px solid #ededf0;
+      border-radius:20px;
+      min-height:170px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      padding:14px 12px;
+      margin-bottom:10px;
+    }
+
+    .guide{
+      font-size:28px;
+      font-weight:800;
+      letter-spacing:-0.04em;
+      margin:0 0 12px 0;
+    }
+
+    .digits{
+      display:flex;
+      gap:10px;
+      margin-bottom:8px;
+    }
+
+    .digit-box{
+      width:64px;
+      height:72px;
+      border-radius:16px;
+      background:#f1f2f6;
+      border:1px solid #e6e7eb;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:34px;
+      font-weight:800;
+      letter-spacing:-0.02em;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,0.75);
+    }
+
+    .digit-box.empty{
+      color:#c2c5cc;
+    }
+
+    .message{
+      min-height:20px;
+      font-size:16px;
+      font-weight:700;
+      letter-spacing:-0.03em;
+    }
+
+    .message.success{ color:#1d7a43; }
+    .message.error{ color:#d64045; }
+
+    .pad-title{
+      text-align:center;
+      color:var(--sub);
+      font-size:13px;
+      font-weight:700;
+      margin-bottom:6px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(3, 1fr);
+      gap:10px;
+    }
+
+    .key{
+      height:64px;
+      border:none;
+      border-radius:16px;
+      background:var(--key);
+      color:var(--text);
+      font-size:28px;
+      font-weight:800;
+      letter-spacing:-0.03em;
+      box-shadow:var(--shadow-soft);
+      cursor:pointer;
+      transition:transform .08s ease, box-shadow .12s ease, background .12s ease;
+    }
+
+    .key:hover{
+      box-shadow:0 8px 18px rgba(0,0,0,0.08);
+    }
+
+    .key:active{
+      transform:scale(0.98);
+    }
+
+    .key.sub{
+      background:var(--key-dark);
+      font-size:16px;
+      font-weight:700;
+    }
+
+    .bottom{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      margin-top:8px;
+    }
+
+    .action{
+      height:64px;
+      border:none;
+      border-radius:16px;
+      background:#111111;
+      color:#ffffff;
+      font-size:20px;
+      font-weight:800;
+      letter-spacing:-0.03em;
+      box-shadow:var(--shadow-soft);
+      cursor:pointer;
+      transition:transform .08s ease, opacity .12s ease;
+    }
+
+    .action.secondary{
+      background:#ececf1;
+      color:#111111;
+    }
+
+    .action:active{
+      transform:scale(0.98);
+    }
+
+    @media (max-width: 1024px){
+      body{
+        padding:2px;
+      }
+
+      .hero{
+        margin-bottom:4px;
+      }
+
+      .sub{
+        font-size:12px;
+        line-height:1.15;
+      }
+
+      .date-card{
+        padding:8px 12px;
+        margin-bottom:6px;
+        min-width:140px;
+        border-radius:16px;
+      }
+
+      .date-card .label{
+        font-size:11px;
+      }
+
+      .date-card .value{
+        font-size:20px;
+      }
+
+      .main-card{
+        padding:8px;
+        border-radius:18px;
+      }
+
+      .screen{
+        min-height:150px;
+        padding:10px 8px;
+        margin-bottom:8px;
+        border-radius:16px;
+      }
+
+      .guide{
+        font-size:20px;
+        margin:0 0 8px 0;
+      }
+
+      .digits{
+        gap:8px;
+        margin-bottom:6px;
+      }
+
+      .digit-box{
+        width:50px;
+        height:56px;
+        font-size:26px;
+        border-radius:14px;
+      }
+
+      .message{
+        min-height:18px;
+        font-size:14px;
+      }
+
+      .pad-title{
+        font-size:12px;
+        margin-bottom:4px;
+      }
+
+      .grid{
+        gap:6px;
+      }
+
+      .key{
+        height:50px;
+        font-size:22px;
+        border-radius:14px;
+      }
+
+      .key.sub{
+        font-size:14px;
+      }
+
+      .bottom{
+        gap:6px;
+        margin-top:6px;
+      }
+
+      .action{
+        height:48px;
+        font-size:16px;
+        border-radius:14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <p class="sub">전화번호 뒤 4자리를 입력하면 자동으로 출석 처리됩니다.</p>
+    </div>
+
+    <div class="date-card">
+      <div class="label">오늘 날짜</div>
+      <div class="value">{{ today_str }}</div>
+    </div>
+
+    <div class="main-card">
+      <div class="screen">
+        <div class="guide">출결번호를 입력해주세요.</div>
+
+        <div class="digits">
+          <div class="digit-box empty" id="digit1">—</div>
+          <div class="digit-box empty" id="digit2">—</div>
+          <div class="digit-box empty" id="digit3">—</div>
+          <div class="digit-box empty" id="digit4">—</div>
+        </div>
+
+        <div class="message" id="kioskMessage"></div>
+      </div>
+
+      <div class="pad-title">전화번호 뒤 4자리 입력</div>
+
+      <div class="grid">
+        <button type="button" class="key" onclick="pressDigit('1')">1</button>
+        <button type="button" class="key" onclick="pressDigit('2')">2</button>
+        <button type="button" class="key" onclick="pressDigit('3')">3</button>
+
+        <button type="button" class="key" onclick="pressDigit('4')">4</button>
+        <button type="button" class="key" onclick="pressDigit('5')">5</button>
+        <button type="button" class="key" onclick="pressDigit('6')">6</button>
+
+        <button type="button" class="key" onclick="pressDigit('7')">7</button>
+        <button type="button" class="key" onclick="pressDigit('8')">8</button>
+        <button type="button" class="key" onclick="pressDigit('9')">9</button>
+
+        <button type="button" class="key sub" onclick="resetDigits()">다시입력</button>
+        <button type="button" class="key" onclick="pressDigit('0')">0</button>
+        <button type="button" class="key sub" onclick="backspaceDigit()">지우기</button>
+      </div>
+
+      <div class="bottom">
+        <button type="button" class="action" onclick="submitDigitsManual()">출석</button>
+        <button type="button" class="action secondary" onclick="resetDigits()">초기화</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentDigits = "";
+    let isSubmitting = false;
+
+    function renderDigits() {
+      const boxes = [
+        document.getElementById("digit1"),
+        document.getElementById("digit2"),
+        document.getElementById("digit3"),
+        document.getElementById("digit4"),
+      ];
+
+      for (let i = 0; i < 4; i++) {
+        if (currentDigits[i]) {
+          boxes[i].textContent = currentDigits[i];
+          boxes[i].classList.remove("empty");
+        } else {
+          boxes[i].textContent = "—";
+          boxes[i].classList.add("empty");
+        }
+      }
+    }
+
+    function showMessage(text, type="") {
+      const el = document.getElementById("kioskMessage");
+      el.textContent = text;
+      el.className = "message" + (type ? " " + type : "");
+    }
+
+    function resetDigits(clearMessage = true) {
+      currentDigits = "";
+      renderDigits();
+      if (clearMessage) showMessage("");
+      isSubmitting = false;
+    }
+
+    function backspaceDigit() {
+      if (isSubmitting) return;
+      currentDigits = currentDigits.slice(0, -1);
+      renderDigits();
+    }
+
+    function pressDigit(d) {
+      if (isSubmitting) return;
+      if (currentDigits.length >= 4) return;
+
+      currentDigits += d;
+      renderDigits();
+
+      if (currentDigits.length === 4) {
+        submitDigits();
+      }
+    }
+
+    function submitDigitsManual() {
+      if (currentDigits.length !== 4) {
+        showMessage("4자리를 입력해주세요.", "error");
+        return;
+      }
+      submitDigits();
+    }
+
+    async function submitDigits() {
+      if (isSubmitting) return;
+      isSubmitting = true;
+
+      try {
+        const formData = new FormData();
+        formData.append("phone_last4", currentDigits);
+
+        const res = await fetch("/attendance/kiosk/check", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (data.ok) {
+          showMessage(data.message || "출석 완료", "success");
+        } else {
+          showMessage(data.message || "처리 실패", "error");
+        }
+      } catch (e) {
+        showMessage("저장 중 오류가 발생했습니다.", "error");
+      }
+
+      setTimeout(() => {
+        resetDigits(false);
+        showMessage("");
+      }, 1800);
+    }
+
+    renderDigits();
+  </script>
+</body>
+</html>

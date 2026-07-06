@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-top" style="margin-bottom:18px;">
+  <div>
+    <h1 class="page-title">출결 관리</h1>
+    <div class="page-sub">수업별 출결 체크 + 피드백 저장</div>
+  </div>
+</div>
+
+<div class="panel-card" style="padding:20px; margin-bottom:18px;">
+  <form method="get" action="/attendance" class="form">
+    <div class="grid-form" style="grid-template-columns: 1.2fr 220px auto; align-items:end;">
+      <div class="field">
+        <label>수업 선택</label>
+        <select name="lesson_id" required onchange="this.form.submit()">
+          <option value="">수업 선택</option>
+          {% for lesson in lessons %}
+            <option value="{{ lesson['id'] }}" {% if lesson_id|string == lesson['id']|string %}selected{% endif %}>
+              {{ lesson['lesson_name'] if lesson['lesson_name'] else '이름 없는 수업' }}
+              {% if lesson['lesson_days'] %} · {{ lesson['lesson_days'] }}{% endif %}
+              {% if lesson['teacher_name'] %} · {{ lesson['teacher_name'] }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>날짜</label>
+        <input
+          type="date"
+          name="attendance_date"
+          value="{{ attendance_date }}"
+          min="1900-01-01"
+          max="2099-12-31"
+          onchange="this.form.submit()">
+      </div>
+
+      <div class="field">
+        <button class="btn primary" type="submit">조회</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if selected_lesson %}
+  <div class="panel-card" style="padding:20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+      <div>
+        <div class="panel-title" style="margin-bottom:6px;">
+          {{ selected_lesson['lesson_name'] if selected_lesson['lesson_name'] else '이름 없는 수업' }}
+        </div>
+        <div class="muted">
+          날짜: {{ attendance_date }}
+          {% if selected_lesson['lesson_days'] %} · {{ selected_lesson['lesson_days'] }}{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <form method="post" action="/attendance/save">
+      <input type="hidden" name="lesson_id" value="{{ lesson_id }}">
+      <input type="hidden" name="attendance_date" value="{{ attendance_date }}">
+
+      {% if actors %}
+        <div style="overflow-x:auto;">
+          <table class="actor-list-table" style="min-width:1100px;">
+            <thead>
+              <tr>
+                <th style="width:70px;">번호</th>
+                <th style="width:180px;">이름</th>
+                <th style="width:120px;">등록 뒷번호</th>
+                <th style="width:140px;">입력</th>
+                <th style="width:160px;">출결 상태</th>
+                <th>피드백</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for actor in actors %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>
+                  <strong>{{ actor['name'] }}</strong>
+                  {% if actor['birth_year'] %}
+                    <div class="muted" style="margin-top:4px;">{{ actor['birth_year'] }}년생</div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if actor['phone_last4'] %}
+                    <span class="chip">{{ actor['phone_last4'] }}</span>
+                  {% else %}
+                    <span class="muted">미등록</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    name="phone_input_{{ actor['id'] }}"
+                    inputmode="numeric"
+                    maxlength="4"
+                    value="{{ actor['phone_input'] if actor['phone_input'] else '' }}"
+                    placeholder="1234"
+                    oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0,4)">
+                </td>
+                <td>
+                  <select name="status_{{ actor['id'] }}">
+                    <option value="" {% if not actor['status'] or actor['status'] == '미체크' %}selected{% endif %}>자동판별</option>
+                    <option value="출석" {% if actor['status'] == '출석' %}selected{% endif %}>출석</option>
+                    <option value="지각" {% if actor['status'] == '지각' %}selected{% endif %}>지각</option>
+                    <option value="결석" {% if actor['status'] == '결석' %}selected{% endif %}>결석</option>
+                    <option value="보강" {% if actor['status'] == '보강' %}selected{% endif %}>보강</option>
+                    <option value="미체크" {% if actor['status'] == '미체크' %}selected{% endif %}>미체크</option>
+                  </select>
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    name="feedback_{{ actor['id'] }}"
+                    value="{{ actor['feedback'] if actor['feedback'] else '' }}"
+                    placeholder="예: 발성 좋음 / 집중도 보통 / 감정선 좋음">
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="form-actions" style="margin-top:18px;">
+          <button class="btn primary" type="submit">출결 저장</button>
+          <a class="btn" href="/attendance?lesson_id={{ lesson_id }}&attendance_date={{ attendance_date }}">새로고침</a>
+        </div>
+      {% else %}
+        <p class="muted">이 수업에 배정된 배우가 없습니다.</p>
+      {% endif %}
+    </form>
+  </div>
+{% else %}
+  <div class="panel-card" style="padding:20px;">
+    <p class="muted" style="margin:0;">수업을 선택하면 배우 출결 목록이 표시됩니다.</p>
+  </div>
+{% endif %}
+
+{% endblock %}
