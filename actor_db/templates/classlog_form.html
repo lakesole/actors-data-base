@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="detail-top">
+  <a class="back" href="/actors/{{ actor_id }}?tab=classlog">← 수업일지로</a>
+  <div></div>
+</div>
+
+<div class="panel-card">
+  <div class="panel-title">수업일지 {{ "추가" if mode=="new" else "수정" }}</div>
+
+  {% if mode == "new" %}
+    <form method="post" action="/actors/{{ actor_id }}/classlogs/new" class="edit-form">
+  {% else %}
+    <form method="post" action="/actors/{{ actor_id }}/classlogs/{{ item['id'] }}/edit" class="edit-form">
+  {% endif %}
+
+    <div class="form-grid">
+      <div class="field">
+        <label>날짜</label>
+        <input
+          type="date"
+          name="meet_date"
+          value="{{ item['meet_date'] if item else '' }}"
+          min="1900-01-01"
+          max="2099-12-31"
+          required
+          oninvalid="this.setCustomValidity('날짜를 다시 확인해주세요. 연도는 4자리여야 합니다.')"
+          oninput="this.setCustomValidity('')">
+      </div>
+
+      <div class="field">
+        <label>내용</label>
+        <input type="text" name="content" value="{{ item['content'] if item else '' }}" placeholder="예: 발성 트레이닝" required>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn primary" type="submit">{{ "추가" if mode=="new" else "저장" }}</button>
+      <a class="btn" href="/actors/{{ actor_id }}?tab=classlog">취소</a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}
