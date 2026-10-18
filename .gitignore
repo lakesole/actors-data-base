@@ -1,1 +1,24 @@
+# OS / editor
 .DS_Store
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# 런타임 데이터 (git에 올리지 않는다)
+*.db
+*.db.bak-*
+storage/
+static/uploads/
+static/merged/
+data/
+
+# Frontend
+node_modules/
+dist/
+
+# 환경변수
+.env

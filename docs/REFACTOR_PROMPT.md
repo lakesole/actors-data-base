@@ -226,7 +226,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 ### 진행 현황
 
 - [x] Phase 0. 안전장치
-- [ ] Phase 1. 저장소 정리
+- [x] Phase 1. 저장소 정리
 - [ ] Phase 2. 백엔드 뼈대와 core 분리
 - [ ] Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
   - [ ] auth
@@ -254,12 +254,12 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [x] **완료 조건**: 테스트가 현재 코드에서 전부 통과한다.
 
 ### Phase 1. 저장소 정리
-- [ ] `.gitignore`에 `__pycache__/`, `*.pyc`, `.venv/`, `.DS_Store`, `*.db`, `*.db.bak-*`, `storage/`, `node_modules/`, `dist/`, `.env`를 추가한다.
-- [ ] 이미 추적 중인 파일을 `git rm --cached`로 제외한다 (`__pycache__`, `.DS_Store`, `data/test.pptx`). **파일 자체는 삭제하지 않는다.**
-- [ ] 시크릿 키, DB 경로, 저장소 경로를 환경변수로 옮긴다. `.env.example`을 만든다.
-- [ ] import 중복을 정리한다.
+- [x] `.gitignore`에 `__pycache__/`, `*.pyc`, `.venv/`, `.DS_Store`, `*.db`, `*.db.bak-*`, `storage/`, `node_modules/`, `dist/`, `.env`를 추가한다.
+- [x] 이미 추적 중인 파일을 `git rm --cached`로 제외한다 (`__pycache__`, `.DS_Store`, `data/test.pptx`). **파일 자체는 삭제하지 않는다.**
+- [x] 시크릿 키, DB 경로, 저장소 경로를 환경변수로 옮긴다. `.env.example`을 만든다.
+- [x] import 중복을 정리한다.
 
-- [ ] **완료 조건**: 앱이 기존과 동일하게 동작하고, Phase 0 테스트가 통과한다.
+- [x] **완료 조건**: 앱이 기존과 동일하게 동작하고, Phase 0 테스트가 통과한다.
 
 ### Phase 2. 백엔드 뼈대와 core 분리
 - [ ] `actor_db/`를 `backend/app/`로 옮기는 폴더 구조를 만든다. Dockerfile과 docker-compose 경로를 수정한다.

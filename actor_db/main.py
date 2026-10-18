@@ -1,40 +1,39 @@
-import os
-import uuid
-import aiosqlite
-import subprocess
-import shutil
-import math
-import re
-import tempfile
 import io
+import math
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import uuid
 from copy import deepcopy
-from pptx import Presentation
-from pathlib import Path
-from urllib.parse import quote
-from PIL import Image, ImageOps
-from starlette.middleware.sessions import SessionMiddleware
-from passlib.context import CryptContext
-from fastapi.responses import HTMLResponse
-
-
 from datetime import datetime, timedelta
-from fastapi import UploadFile, File, Form
-from fastapi import Query
-from fastapi import HTTPException
-from fastapi.responses import HTMLResponse
-from fastapi import FastAPI, Request, UploadFile, File, Form, Query
-from fastapi.responses import RedirectResponse, PlainTextResponse, FileResponse
+from typing import List, Union
+from urllib.parse import quote
+
+import aiosqlite
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi import Form
-from fastapi.responses import FileResponse, PlainTextResponse
-from typing import Union, List, Optional
+from passlib.context import CryptContext
+from PIL import Image, ImageOps
+from pptx import Presentation
 from pypdf import PdfWriter
+from starlette.middleware.sessions import SessionMiddleware
 
+load_dotenv()
 
-DB_PATH = "actors.db"
+DB_PATH = os.getenv("DB_PATH", "actors.db")
 MERGED_DIR = os.path.join("static", "merged")
 UPLOAD_DIR = os.path.join("static", "uploads")
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    print("경고: SECRET_KEY 환경변수가 없어 임시 키를 사용합니다. 재시작하면 모든 로그인이 풀립니다.")
+SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").lower() == "true"
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -86,11 +85,11 @@ async def kiosk_mode_guard(request: Request, call_next):
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key="damactors-super-secret-key-change-this",
+    secret_key=SECRET_KEY,
     session_cookie="damactors_session",
     max_age=60 * 60 * 24 * 7,  # 7일
     same_site="lax",
-    https_only=False,  # HTTPS 적용 전이면 False
+    https_only=SESSION_HTTPS_ONLY,
 )
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

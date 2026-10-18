@@ -16,6 +16,6 @@
 | 9 | 낮음 | `features/actors/service.py` 생성 | `phone_last4`가 숫자의 **앞 4자리**를 저장한다. 전화번호 전체(010-1234-5678)를 입력하면 `0101`이 저장된다. |
 | 10 | 낮음 | 앱 시작 | `normalize_actor_data()`가 시작할 때마다 모든 배우 행을 UPDATE 한다. 데이터가 많아지면 시작이 느려진다. |
 | 11 | 낮음 | `features/users` 권한 변경/삭제 | "마지막 관리자 보호" 분기는 실제로 도달할 수 없다. 요청자가 admin이고 본인은 대상에서 제외되므로 대상 admin이 마지막일 수 없다. 기능상 문제는 없다. |
+| 12 | 정보 | `main.py` | `/where` 디버그 라우트가 운영에 노출되어 있다. |
 | 13 | 중간 | `features/actors/router.py` 생성/수정 | **연기영상을 여러 개 올려도 마지막 1개만 저장된다.** `acting_videos: list[UploadFile] \| UploadFile \| None` 유니온 타입을 FastAPI가 단일 파일로 해석한다. 수정: `acting_videos: list[UploadFile] = File([])`. |
 | 14 | 낮음 | 폼 전체 | 필수 폼 필드(`Form(...)`)를 빈 값으로 보내면 FastAPI가 422 JSON을 반환해서, "아이디, 비밀번호, 이름은 필수입니다." 같은 화면 메시지는 공백만 입력했을 때만 나온다. |
-| 12 | 정보 | `main.py` | `/where` 디버그 라우트가 운영에 노출되어 있다. |
