@@ -233,7 +233,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
   - [x] teachers
   - [x] users
   - [x] actors
-  - [ ] actor_records
+  - [x] actor_records
   - [ ] attendance
   - [ ] compcards
 - [ ] Phase 4. JSON API 추가

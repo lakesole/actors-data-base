@@ -14,10 +14,8 @@ from pypdf import PdfWriter
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.auth import (
-    require_actor_edit_permission,
     require_admin_legacy as require_admin,
     require_login_user,
-    require_record_delete_permission,
 )
 from app.core.config import (
     DB_PATH,
@@ -30,6 +28,7 @@ from app.core.config import (
 )
 from app.core.database import open_db
 from app.core.errors import register_error_handlers
+from app.features.actor_records.router import router as actor_records_router
 from app.core.files import ensure_dirs, safe_download_filename, url_to_fs_path
 from app.core.schema import init_db, migrate_legacy_log_tables
 from app.core.templating import templates
@@ -57,6 +56,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 register_error_handlers(app)
+app.include_router(actor_records_router)
 app.include_router(actors_router)
 app.include_router(users_router)
 app.include_router(teachers_router)
@@ -104,12 +104,6 @@ app.add_middleware(
 # -------------------------
 # 공통 유틸
 # -------------------------
-
-
-def actor_url(actor_id: int, tab: str | None = None) -> str:
-    if tab:
-        return f"/actors/{actor_id}?tab={tab}"
-    return f"/actors/{actor_id}"
 
 
 def _get_blank_layout(prs: Presentation):
@@ -826,125 +820,9 @@ async def download_selected_compcards_pdf(actor_ids: list[int] = Form(...)):
 # -------------------------
 
 
-@app.get("/actors/{actor_id}/classlogs/new")
-async def classlog_new(request: Request, actor_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    return templates.TemplateResponse("classlog_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "new", "item": None
-    })
-
-
-@app.post("/actors/{actor_id}/classlogs/new")
-async def classlog_new_post(request: Request, actor_id: int, meet_date: str = Form(...), content: str = Form(...)):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    now = datetime.now().isoformat(timespec="seconds")
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        INSERT INTO class_logs (actor_id, meet_date, content, created_at)
-        VALUES (?, ?, ?, ?)
-        """, (actor_id, meet_date, content, now))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "classlog"), status_code=303)
-
-
-@app.get("/actors/{actor_id}/classlogs/{log_id}/edit")
-async def classlog_edit(request: Request, actor_id: int, log_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM class_logs WHERE id=? AND actor_id=?", (log_id, actor_id))
-        item = await cur.fetchone()
-    if not item:
-        return RedirectResponse(actor_url(actor_id, "classlog"), status_code=303)
-    return templates.TemplateResponse("classlog_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "edit", "item": item
-    })
-
-
-@app.post("/actors/{actor_id}/classlogs/{log_id}/edit")
-async def classlog_edit_post(request: Request, actor_id: int, log_id: int, meet_date: str = Form(...), content: str = Form(...)):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE class_logs SET meet_date=?, content=? WHERE id=? AND actor_id=?",
-            (meet_date, content, log_id, actor_id)
-        )
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "classlog"), status_code=303)
-
-
-@app.post("/actors/{actor_id}/classlogs/{log_id}/delete")
-async def classlog_delete(request: Request, actor_id: int, log_id: int):
-    current_user = await require_record_delete_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM class_logs WHERE id=? AND actor_id=?", (log_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "classlog"), status_code=303)
-
-
 # -------------------------
 # 오디션 항목 CRUD
 # -------------------------
-
-
-@app.get("/actors/{actor_id}/auditions/new")
-async def audition_new(request: Request, actor_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    return templates.TemplateResponse("audition_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "new", "item": None
-    })
-
-
-@app.post("/actors/{actor_id}/auditions/new")
-async def audition_new_post(request: Request, actor_id: int, aud_date: str = Form(...), content: str = Form(...)):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    aud_date = validate_yyyy_mm_dd(aud_date)
-    now = datetime.now().isoformat(timespec="seconds")
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        INSERT INTO auditions (actor_id, aud_date, content, created_at)
-        VALUES (?, ?, ?, ?)
-        """, (actor_id, aud_date, content, now))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "auditions"), status_code=303)
-
-
-@app.get("/actors/{actor_id}/auditions/{aud_id}/edit")
-async def audition_edit(request: Request, actor_id: int, aud_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM auditions WHERE id=? AND actor_id=?", (aud_id, actor_id))
-        item = await cur.fetchone()
-    if not item:
-        return RedirectResponse(actor_url(actor_id, "auditions"), status_code=303)
-    return templates.TemplateResponse("audition_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "edit", "item": item
-    })
-
-
-@app.post("/actors/{actor_id}/auditions/{aud_id}/edit")
-async def audition_edit_post(request: Request, actor_id: int, aud_id: int, aud_date: str = Form(...), content: str = Form(...)):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    aud_date = validate_yyyy_mm_dd(aud_date)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE auditions SET aud_date=?, content=? WHERE id=? AND actor_id=?",
-            (aud_date, content, aud_id, actor_id)
-        )
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "auditions"), status_code=303)
-
-
-@app.post("/actors/{actor_id}/auditions/{aud_id}/delete")
-async def audition_delete(request: Request, actor_id: int, aud_id: int):
-    current_user = await require_record_delete_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM auditions WHERE id=? AND actor_id=?", (aud_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "auditions"), status_code=303)
 
 
 # -------------------------
@@ -952,239 +830,14 @@ async def audition_delete(request: Request, actor_id: int, aud_id: int):
 # -------------------------
 
 
-@app.get("/actors/{actor_id}/casting-management/new")
-async def casting_mgmt_new(request: Request, actor_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    return templates.TemplateResponse("casting_management_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "new", "item": None
-    })
-
-
-@app.post("/actors/{actor_id}/casting-management/new")
-async def casting_mgmt_new_post(
-    request: Request,
-    actor_id: int,
-    meet_date: str = Form(...),
-    content: str = Form(...),
-):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    now = datetime.now().isoformat(timespec="seconds")
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        INSERT INTO casting_management_logs (actor_id, meet_date, content, created_at)
-        VALUES (?, ?, ?, ?)
-        """, (actor_id, meet_date, content, now))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "casting_management"), status_code=303)
-
-
-@app.get("/actors/{actor_id}/casting-management/{item_id}/edit")
-async def casting_mgmt_edit(request: Request, actor_id: int, item_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-        SELECT * FROM casting_management_logs WHERE id=? AND actor_id=?
-        """, (item_id, actor_id))
-        item = await cur.fetchone()
-    if not item:
-        return RedirectResponse(actor_url(actor_id, "casting_management"), status_code=303)
-
-    return templates.TemplateResponse("casting_management_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "edit", "item": item
-    })
-
-
-@app.post("/actors/{actor_id}/casting-management/{item_id}/edit")
-async def casting_mgmt_edit_post(
-    request: Request,
-    actor_id: int,
-    item_id: int,
-    meet_date: str = Form(...),
-    content: str = Form(...),
-):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        UPDATE casting_management_logs
-        SET meet_date=?, content=?
-        WHERE id=? AND actor_id=?
-        """, (meet_date, content, item_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "casting_management"), status_code=303)
-
-
-@app.post("/actors/{actor_id}/casting-management/{item_id}/delete")
-async def casting_mgmt_delete(request: Request, actor_id: int, item_id: int):
-    current_user = await require_record_delete_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        DELETE FROM casting_management_logs WHERE id=? AND actor_id=?
-        """, (item_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "casting_management"), status_code=303)
-
-
 # -------------------------
 # 캐스팅 미팅 기록 항목 CRUD
 # -------------------------
 
 
-@app.get("/actors/{actor_id}/casting-meetings/new")
-async def casting_meeting_new(request: Request, actor_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    return templates.TemplateResponse("casting_meeting_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "new", "item": None
-    })
-
-
-@app.post("/actors/{actor_id}/casting-meetings/new")
-async def casting_meeting_new_post(
-    request: Request,
-    actor_id: int,
-    meet_date: str = Form(...),
-    content: str = Form(...),
-):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    now = datetime.now().isoformat(timespec="seconds")
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        INSERT INTO casting_meetings (actor_id, meet_date, content, created_at)
-        VALUES (?, ?, ?, ?)
-        """, (actor_id, meet_date, content, now))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "casting_meetings"), status_code=303)
-
-
-@app.get("/actors/{actor_id}/casting-meetings/{item_id}/edit")
-async def casting_meeting_edit(request: Request, actor_id: int, item_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-        SELECT * FROM casting_meetings WHERE id=? AND actor_id=?
-        """, (item_id, actor_id))
-        item = await cur.fetchone()
-    if not item:
-        return RedirectResponse(actor_url(actor_id, "casting_meetings"), status_code=303)
-
-    return templates.TemplateResponse("casting_meeting_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "edit", "item": item
-    })
-
-
-@app.post("/actors/{actor_id}/casting-meetings/{item_id}/edit")
-async def casting_meeting_edit_post(
-    request: Request,
-    actor_id: int,
-    item_id: int,
-    meet_date: str = Form(...),
-    content: str = Form(...),
-):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        UPDATE casting_meetings
-        SET meet_date=?, content=?
-        WHERE id=? AND actor_id=?
-        """, (meet_date, content, item_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "casting_meetings"), status_code=303)
-
-
-@app.post("/actors/{actor_id}/casting-meetings/{item_id}/delete")
-async def casting_meeting_delete(request: Request, actor_id: int, item_id: int):
-    current_user = await require_record_delete_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        DELETE FROM casting_meetings WHERE id=? AND actor_id=?
-        """, (item_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "casting_meetings"), status_code=303)
-
-
 # -------------------------
 # 첫 미팅 기록 항목 CRUD
 # -------------------------
-
-
-@app.get("/actors/{actor_id}/first-meetings/new")
-async def first_meeting_new(request: Request, actor_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    return templates.TemplateResponse("first_meeting_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "new", "item": None
-    })
-
-
-@app.post("/actors/{actor_id}/first-meetings/new")
-async def first_meeting_new_post(
-    request: Request,
-    actor_id: int,
-    meet_date: str = Form(...),
-    content: str = Form(...),
-):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    now = datetime.now().isoformat(timespec="seconds")
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        INSERT INTO first_meetings (actor_id, meet_date, content, created_at)
-        VALUES (?, ?, ?, ?)
-        """, (actor_id, meet_date, content, now))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "first_meeting"), status_code=303)
-
-
-@app.get("/actors/{actor_id}/first-meetings/{item_id}/edit")
-async def first_meeting_edit(request: Request, actor_id: int, item_id: int):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-        SELECT * FROM first_meetings WHERE id=? AND actor_id=?
-        """, (item_id, actor_id))
-        item = await cur.fetchone()
-    if not item:
-        return RedirectResponse(actor_url(actor_id, "first_meeting"), status_code=303)
-
-    return templates.TemplateResponse("first_meeting_form.html", {
-        "request": request, "actor_id": actor_id, "mode": "edit", "item": item
-    })
-
-
-@app.post("/actors/{actor_id}/first-meetings/{item_id}/edit")
-async def first_meeting_edit_post(
-    request: Request,
-    actor_id: int,
-    item_id: int,
-    meet_date: str = Form(...),
-    content: str = Form(...),
-):
-    current_user = await require_actor_edit_permission(request, actor_id)
-    meet_date = validate_yyyy_mm_dd(meet_date)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        UPDATE first_meetings
-        SET meet_date=?, content=?
-        WHERE id=? AND actor_id=?
-        """, (meet_date, content, item_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "first_meeting"), status_code=303)
-
-
-@app.post("/actors/{actor_id}/first-meetings/{item_id}/delete")
-async def first_meeting_delete(request: Request, actor_id: int, item_id: int):
-    current_user = await require_record_delete_permission(request, actor_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        DELETE FROM first_meetings WHERE id=? AND actor_id=?
-        """, (item_id, actor_id))
-        await db.commit()
-    return RedirectResponse(actor_url(actor_id, "first_meeting"), status_code=303)
 
 
 # -------------------------

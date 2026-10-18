@@ -2,7 +2,10 @@ from dataclasses import dataclass
 
 import aiosqlite
 
+from app.core.database import transaction
+from app.core.validators import now_iso, validate_yyyy_mm_dd
 from app.features.actor_records import repository
+from app.features.actors import service as actors_service
 
 
 @dataclass(frozen=True)
@@ -28,3 +31,42 @@ RECORD_TYPES = {
 async def list_records(db: aiosqlite.Connection, path: str, actor_id: int) -> list[dict]:
     t = RECORD_TYPES[path]
     return await repository.list_by_actor(db, t.table, t.date_field, actor_id)
+
+
+async def get_record(db: aiosqlite.Connection, path: str, actor_id: int, item_id: int) -> dict | None:
+    return await repository.get(db, RECORD_TYPES[path].table, actor_id, item_id)
+
+
+async def ensure_can_edit(db: aiosqlite.Connection, user: dict, actor_id: int):
+    await actors_service.ensure_can_edit(db, user, actor_id)
+
+
+async def create_record(db: aiosqlite.Connection, user: dict, path: str, actor_id: int, record_date: str, content: str):
+    t = RECORD_TYPES[path]
+    await actors_service.ensure_can_edit(db, user, actor_id)
+    record_date = validate_yyyy_mm_dd(record_date)
+
+    async with transaction(db):
+        await repository.insert(db, t.table, t.date_field, actor_id, record_date, content, now_iso())
+
+
+async def update_record(db: aiosqlite.Connection, user: dict, path: str, actor_id: int, item_id: int, record_date: str, content: str):
+    t = RECORD_TYPES[path]
+    await actors_service.ensure_can_edit(db, user, actor_id)
+    record_date = validate_yyyy_mm_dd(record_date)
+
+    async with transaction(db):
+        await repository.update(db, t.table, t.date_field, actor_id, item_id, record_date, content)
+
+
+async def delete_record(db: aiosqlite.Connection, user: dict, path: str, actor_id: int, item_id: int):
+    actors_service.ensure_can_delete_record(user)
+
+    async with transaction(db):
+        await repository.delete(db, RECORD_TYPES[path].table, actor_id, item_id)
+
+
+async def add_class_log_if_absent(db: aiosqlite.Connection, actor_id: int, meet_date: str, content: str, created_at: str):
+    """같은 날짜, 같은 내용의 수업일지가 없을 때만 추가한다. 호출하는 쪽의 트랜잭션 안에서 실행된다."""
+    if not await repository.class_log_exists(db, actor_id, meet_date, content):
+        await repository.insert(db, "class_logs", "meet_date", actor_id, meet_date, content, created_at)

@@ -13,3 +13,40 @@ async def list_by_actor(db: aiosqlite.Connection, table: str, date_col: str, act
         (actor_id,)
     )
     return [dict(r) for r in await cur.fetchall()]
+
+
+async def get(db: aiosqlite.Connection, table: str, actor_id: int, item_id: int) -> dict | None:
+    cur = await db.execute(f"SELECT * FROM {table} WHERE id=? AND actor_id=?", (item_id, actor_id))
+    row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def insert(db: aiosqlite.Connection, table: str, date_col: str, actor_id: int, record_date: str, content: str, created_at: str):
+    await db.execute(f"""
+        INSERT INTO {table} (actor_id, {date_col}, content, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (actor_id, record_date, content, created_at))
+
+
+async def update(db: aiosqlite.Connection, table: str, date_col: str, actor_id: int, item_id: int, record_date: str, content: str):
+    await db.execute(f"""
+        UPDATE {table}
+        SET {date_col}=?, content=?
+        WHERE id=? AND actor_id=?
+    """, (record_date, content, item_id, actor_id))
+
+
+async def delete(db: aiosqlite.Connection, table: str, actor_id: int, item_id: int):
+    await db.execute(f"DELETE FROM {table} WHERE id=? AND actor_id=?", (item_id, actor_id))
+
+
+async def class_log_exists(db: aiosqlite.Connection, actor_id: int, meet_date: str, content: str) -> bool:
+    cur = await db.execute("""
+        SELECT id
+        FROM class_logs
+        WHERE actor_id = ?
+          AND meet_date = ?
+          AND content = ?
+        LIMIT 1
+    """, (actor_id, meet_date, content))
+    return await cur.fetchone() is not None
