@@ -37,7 +37,9 @@ from app.core.config import (
     STATIC_DIR,
     UPLOAD_DIR,
 )
+from app.core.database import open_db
 from app.core.errors import register_error_handlers
+from app.features.teachers.router import router as teachers_router
 from app.features.auth.router import router as auth_router
 from app.core.files import (
     ensure_dirs,
@@ -52,6 +54,7 @@ from app.core.schema import init_db, migrate_legacy_log_tables
 from app.core.security import hash_password
 from app.core.templating import templates
 from app.core.validators import clean_birth_year, clean_date, validate_yyyy_mm_dd
+from app.features.teachers import service as teachers_service
 
 
 @asynccontextmanager
@@ -67,6 +70,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 register_error_handlers(app)
+app.include_router(teachers_router)
 app.include_router(auth_router)
 
 
@@ -350,41 +354,6 @@ async def get_all_users():
     return [dict(r) for r in rows]
 
 
-async def get_teacher_management_rows():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT
-                u.id,
-                u.username,
-                u.display_name,
-                u.role,
-                u.is_active,
-                u.created_at,
-                tp.lesson_subject,
-                tp.lesson_days
-            FROM users u
-            LEFT JOIN teacher_profiles tp
-              ON tp.user_id = u.id
-            WHERE u.role = 'teacher'
-            ORDER BY u.display_name ASC, u.id DESC
-        """)
-        teacher_rows = [dict(r) for r in await cur.fetchall()]
-
-    for teacher in teacher_rows:
-        lessons = await get_teacher_lessons(teacher["id"])
-        teacher["lessons"] = lessons
-
-        # 선생님 전체 기준으로 현재 배정 배우도 묶어서 보여주기
-        merged = {}
-        for lesson in lessons:
-            for actor in lesson["actors"]:
-                merged[actor["id"]] = actor
-        teacher["assigned_actors"] = list(merged.values())
-
-    return teacher_rows
-
 async def get_all_actors_simple():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -396,57 +365,6 @@ async def get_all_actors_simple():
         rows = await cur.fetchall()
     return [dict(r) for r in rows]
 
-async def get_teacher_users():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT
-                u.id,
-                u.display_name,
-                u.username,
-                COALESCE(tp.lesson_subject, '') AS lesson_subject,
-                COALESCE(tp.lesson_days, '') AS lesson_days
-            FROM users u
-            LEFT JOIN teacher_profiles tp
-              ON tp.user_id = u.id
-            WHERE u.role = 'teacher'
-              AND u.is_active = 1
-            ORDER BY u.display_name ASC, u.id DESC
-        """)
-        rows = await cur.fetchall()
-
-    return [dict(r) for r in rows]
-
-async def get_teacher_lessons(teacher_user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT id, teacher_user_id, lesson_name, lesson_days, created_at
-            FROM teacher_lessons
-            WHERE teacher_user_id = ?
-            ORDER BY id DESC
-        """, (teacher_user_id,))
-        lesson_rows = [dict(r) for r in await cur.fetchall()]
-
-        for lesson in lesson_rows:
-            cur2 = await db.execute("""
-                SELECT
-                    a.id,
-                    a.name,
-                    a.teacher_user_id
-                FROM lesson_actor_assignments la
-                JOIN actors a
-                  ON a.id = la.actor_id
-                WHERE la.lesson_id = ?
-                ORDER BY a.name ASC, a.id DESC
-            """, (lesson["id"],))
-            actors = [dict(r) for r in await cur2.fetchall()]
-            lesson["actors"] = actors
-            lesson["actor_ids"] = [a["id"] for a in actors]
-            lesson["actor_count"] = len(actors)
-
-    return lesson_rows
 
 async def get_all_lessons_for_attendance():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -941,153 +859,6 @@ async def admin_user_delete(request: Request, user_id: int):
 
     return RedirectResponse(url="/admin/users?success=deleted", status_code=303)
 
-
-@app.post("/admin/teachers/{teacher_user_id}/save")
-async def admin_teacher_save(
-    request: Request,
-    teacher_user_id: int,
-    lesson_subject: str = Form(""),
-    lesson_days: str = Form(""),
-):
-    await require_admin(request)
-
-    lesson_subject = (lesson_subject or "").strip()
-    lesson_days = (lesson_days or "").strip()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT id, role
-            FROM users
-            WHERE id = ?
-        """, (teacher_user_id,))
-        teacher = await cur.fetchone()
-
-        if not teacher:
-            raise HTTPException(status_code=404, detail="선생님 계정을 찾을 수 없습니다.")
-
-        teacher = dict(teacher)
-        if teacher["role"] != "teacher":
-            raise HTTPException(status_code=400, detail="teacher 계정만 관리할 수 있습니다.")
-
-        await db.execute("""
-            INSERT INTO teacher_profiles (user_id, lesson_subject, lesson_days, updated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                lesson_subject = excluded.lesson_subject,
-                lesson_days = excluded.lesson_days,
-                updated_at = excluded.updated_at
-        """, (
-            teacher_user_id,
-            lesson_subject,
-            lesson_days,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ))
-
-        await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=teacher_saved", status_code=303)
-
-@app.post("/admin/teachers/{teacher_user_id}/lesson/add")
-async def add_teacher_lesson(
-    request: Request,
-    teacher_user_id: int,
-    lesson_name: str = Form(...),
-    lesson_days: str = Form(...),
-):
-    await require_admin(request)
-
-    lesson_name = (lesson_name or "").strip()
-    lesson_days = (lesson_days or "").strip()
-
-    if not lesson_name:
-        return RedirectResponse(url="/admin/users?success=teacher_saved", status_code=303)
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT INTO teacher_lessons (
-                teacher_user_id, lesson_name, lesson_days, created_at
-            )
-            VALUES (?, ?, ?, ?)
-        """, (
-            teacher_user_id,
-            lesson_name,
-            lesson_days,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ))
-        await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=teacher_saved", status_code=303)
-
-
-@app.post("/admin/teachers/lesson/{lesson_id}/delete")
-async def delete_teacher_lesson(request: Request, lesson_id: int):
-    await require_admin(request)
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            DELETE FROM lesson_actor_assignments
-            WHERE lesson_id = ?
-        """, (lesson_id,))
-
-        await db.execute("""
-            DELETE FROM teacher_lessons
-            WHERE id = ?
-        """, (lesson_id,))
-        await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=teacher_saved", status_code=303)
-
-@app.post("/admin/teachers/lesson/{lesson_id}/actors/save")
-async def save_lesson_actors(
-    request: Request,
-    lesson_id: int,
-):
-    await require_admin(request)
-
-    form = await request.form()
-    raw_actor_ids = form.getlist("actor_ids")
-
-    cleaned_actor_ids = []
-    for actor_id in raw_actor_ids:
-        try:
-            cleaned_actor_ids.append(int(str(actor_id).strip()))
-        except Exception:
-            pass
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT id, teacher_user_id
-            FROM teacher_lessons
-            WHERE id = ?
-        """, (lesson_id,))
-        lesson = await cur.fetchone()
-
-        if not lesson:
-            raise HTTPException(status_code=404, detail="수업을 찾을 수 없습니다.")
-
-        # 기존 연결 삭제
-        await db.execute("""
-            DELETE FROM lesson_actor_assignments
-            WHERE lesson_id = ?
-        """, (lesson_id,))
-
-        # 새 연결 저장
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for actor_id in cleaned_actor_ids:
-            await db.execute("""
-                INSERT OR IGNORE INTO lesson_actor_assignments (
-                    lesson_id, actor_id, created_at
-                )
-                VALUES (?, ?, ?)
-            """, (lesson_id, actor_id, now))
-
-        await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=teacher_saved", status_code=303)
 
 # -------------------------
 # 메인(검색 포함)
@@ -3308,3 +3079,22 @@ async def first_meeting_delete(request: Request, actor_id: int, item_id: int):
         """, (item_id, actor_id))
         await db.commit()
     return RedirectResponse(actor_url(actor_id, "first_meeting"), status_code=303)
+
+
+# -------------------------
+# Phase 3 전환용: 아직 main.py에 남은 라우트가 쓰는 다른 기능의 service
+# -------------------------
+
+async def get_teacher_management_rows():
+    async with open_db() as db:
+        return await teachers_service.get_teacher_management_rows(db)
+
+
+async def get_teacher_users():
+    async with open_db() as db:
+        return await teachers_service.get_active_teachers(db)
+
+
+async def get_teacher_lessons(teacher_user_id: int):
+    async with open_db() as db:
+        return await teachers_service.get_teacher_lessons(db, teacher_user_id)
