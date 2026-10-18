@@ -15,26 +15,31 @@ import pytest
 from passlib.context import CryptContext
 from starlette.testclient import TestClient
 
-APP_DIR = Path(__file__).resolve().parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 ALL_DAYS = "월,화,수,목,금,토,일"
 PASSWORD = "pass1234"
 
 
 def load_app(workdir: Path):
-    # Phase 0: main.py가 현재 작업 디렉터리 기준 상대경로(actors.db, static/, templates/)를 쓴다.
-    os.chdir(workdir)
-    sys.path.insert(0, str(APP_DIR))
-    import main
+    # 설정은 import 시점에 환경변수에서 읽으므로 import 전에 지정한다.
+    os.environ["DB_PATH"] = str(workdir / "actors.db")
+    os.environ["STATIC_DIR"] = str(workdir / "static")
+    os.environ["SECRET_KEY"] = "test-secret"
+    sys.path.insert(0, str(BACKEND_DIR))
+
+    from app.core import security
     # 테스트 속도용: bcrypt 비용만 낮춘다 (해시 형식은 동일)
-    main.pwd_context = CryptContext(schemes=["bcrypt"], bcrypt__rounds=4)
-    return main.app
+    security.pwd_context = CryptContext(schemes=["bcrypt"], bcrypt__rounds=4)
+
+    from app.main import app
+    return app
 
 
 @pytest.fixture(scope="session")
 def workdir(tmp_path_factory):
     d = tmp_path_factory.mktemp("app")
-    (d / "templates").symlink_to(APP_DIR / "templates")
-    shutil.copytree(APP_DIR / "static", d / "static")
+    shutil.copytree(BACKEND_DIR / "app" / "static", d / "static",
+                    ignore=shutil.ignore_patterns("uploads", "merged"))
     return d
 
 

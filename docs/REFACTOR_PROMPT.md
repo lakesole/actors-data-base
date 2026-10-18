@@ -227,7 +227,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 
 - [x] Phase 0. 안전장치
 - [x] Phase 1. 저장소 정리
-- [ ] Phase 2. 백엔드 뼈대와 core 분리
+- [x] Phase 2. 백엔드 뼈대와 core 분리
 - [ ] Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
   - [ ] auth
   - [ ] users
@@ -262,12 +262,12 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [x] **완료 조건**: 앱이 기존과 동일하게 동작하고, Phase 0 테스트가 통과한다.
 
 ### Phase 2. 백엔드 뼈대와 core 분리
-- [ ] `actor_db/`를 `backend/app/`로 옮기는 폴더 구조를 만든다. Dockerfile과 docker-compose 경로를 수정한다.
-- [ ] `core/`로 옮긴다: config, database(`get_db`, `transaction`), schema(`init_db`와 흩어진 마이그레이션 전체), security, auth(`get_current_user`, `require_*`), files, validators.
-- [ ] `@app.on_event("startup")`을 `lifespan`으로 바꾼다.
-- [ ] 이 단계에서는 **라우트 코드는 아직 main.py에 남겨두고**, main.py가 core를 import해서 쓰게만 바꾼다.
+- [x] `actor_db/`를 `backend/app/`로 옮기는 폴더 구조를 만든다. Dockerfile과 docker-compose 경로를 수정한다.
+- [x] `core/`로 옮긴다: config, database(`get_db`, `transaction`), schema(`init_db`와 흩어진 마이그레이션 전체), security, auth(`get_current_user`, `require_*`), files, validators.
+- [x] `@app.on_event("startup")`을 `lifespan`으로 바꾼다.
+- [x] 이 단계에서는 **라우트 코드는 아직 main.py에 남겨두고**, main.py가 core를 import해서 쓰게만 바꾼다.
 
-- [ ] **완료 조건**: main.py에 SQL 스키마와 인증 함수가 남아 있지 않고, 테스트가 통과한다.
+- [x] **완료 조건**: main.py에 SQL 스키마와 인증 함수가 남아 있지 않고, 테스트가 통과한다.
 
 ### Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
 기능 하나씩, 아래 순서로 옮긴다. **기능 하나가 끝날 때마다 테스트 실행 후 커밋한다.**

@@ -1,59 +1,72 @@
-import io
 import math
 import os
 import re
-import secrets
 import shutil
 import subprocess
 import uuid
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import List, Union
 from urllib.parse import quote
 
 import aiosqlite
-from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from passlib.context import CryptContext
-from PIL import Image, ImageOps
 from pptx import Presentation
 from pypdf import PdfWriter
 from starlette.middleware.sessions import SessionMiddleware
 
-load_dotenv()
+from app.core.auth import (
+    can_create_actor,
+    get_current_user,
+    require_actor_edit_permission,
+    require_admin,
+    require_admin_or_staff,
+    require_login_user,
+    require_record_delete_permission,
+    teacher_can_access_actor,
+)
+from app.core.config import (
+    DB_PATH,
+    MERGED_DIR,
+    SECRET_KEY,
+    SESSION_COOKIE_NAME,
+    SESSION_HTTPS_ONLY,
+    SESSION_MAX_AGE,
+    STATIC_DIR,
+    UPLOAD_DIR,
+)
+from app.core.errors import register_error_handlers
+from app.core.files import (
+    ensure_dirs,
+    make_thumbnail_from_url,
+    normalize_uploadfiles,
+    safe_download_filename,
+    save_upload,
+    try_remove_by_url,
+    url_to_fs_path,
+)
+from app.core.schema import init_db, migrate_legacy_log_tables
+from app.core.security import hash_password, verify_password
+from app.core.templating import templates
+from app.core.validators import clean_birth_year, clean_date, validate_yyyy_mm_dd
 
-DB_PATH = os.getenv("DB_PATH", "actors.db")
-MERGED_DIR = os.path.join("static", "merged")
-UPLOAD_DIR = os.path.join("static", "uploads")
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    SECRET_KEY = secrets.token_hex(32)
-    print("경고: SECRET_KEY 환경변수가 없어 임시 키를 사용합니다. 재시작하면 모든 로그인이 풀립니다.")
-SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").lower() == "true"
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_dirs()
+    await init_db()
+    await migrate_legacy_log_tables()
+    await normalize_actor_data()
+    await ensure_default_admin()
+    yield
 
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
-@app.exception_handler(HTTPException)
-async def custom_http_exception_handler(request: Request, exc: HTTPException):
-    accept = (request.headers.get("accept") or "").lower()
+app = FastAPI(lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+register_error_handlers(app)
 
-    # 로그인 필요 → 팝업만 띄우고 그대로 유지
-    if exc.status_code == 403 and exc.detail == "로그인이 필요합니다.":
-        if "text/html" in accept or "*/*" in accept:
-            return HTMLResponse("""
-<script>
-  alert("로그인이 필요합니다.");
-  history.back();
-</script>
-""", status_code=200)
-
-    raise exc
 
 @app.middleware("http")
 async def kiosk_mode_guard(request: Request, call_next):
@@ -86,14 +99,11 @@ async def kiosk_mode_guard(request: Request, call_next):
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
-    session_cookie="damactors_session",
-    max_age=60 * 60 * 24 * 7,  # 7일
+    session_cookie=SESSION_COOKIE_NAME,
+    max_age=SESSION_MAX_AGE,
     same_site="lax",
     https_only=SESSION_HTTPS_ONLY,
 )
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 
 
@@ -101,129 +111,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # 공통 유틸
 # -------------------------
 
-def validate_yyyy_mm_dd(date_str: str) -> str:
-    if not date_str:
-        raise HTTPException(status_code=400, detail="날짜가 비어 있습니다.")
-
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
-        raise HTTPException(status_code=400, detail="날짜 형식은 YYYY-MM-DD 이어야 합니다.")
-
-    try:
-        parsed = datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="올바른 날짜가 아닙니다.")
-
-    year = parsed.year
-    if year < 1900 or year > 2099:
-        raise HTTPException(status_code=400, detail="연도는 1900~2099 사이의 4자리만 가능합니다.")
-
-    return date_str
-
-def ensure_dirs():
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    os.makedirs(MERGED_DIR, exist_ok=True)
-
 
 def actor_url(actor_id: int, tab: str | None = None) -> str:
     if tab:
         return f"/actors/{actor_id}?tab={tab}"
     return f"/actors/{actor_id}"
 
-
-def _save_upload(file: UploadFile, prefix: str) -> str:
-    ensure_dirs()
-    ext = os.path.splitext(file.filename or "")[1].lower()
-
-    if ext == "":
-        ext = ".bin"
-
-    filename = f"{prefix}_{uuid.uuid4().hex}{ext}"
-    save_path = os.path.join(UPLOAD_DIR, filename)
-
-    raw = file.file.read()
-
-    image_exts = {".jpg", ".jpeg", ".png", ".webp"}
-    if ext in image_exts:
-        try:
-            img = Image.open(io.BytesIO(raw))
-            img = ImageOps.exif_transpose(img)
-
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-            elif img.mode == "L":
-                img = img.convert("RGB")
-
-            max_size = 1000
-            img.thumbnail((max_size, max_size))
-
-            # jpg로 통일 저장
-            filename = f"{prefix}_{uuid.uuid4().hex}.jpg"
-            save_path = os.path.join(UPLOAD_DIR, filename)
-
-            img.save(save_path, format="JPEG", quality=85, optimize=True)
-            return f"/static/uploads/{filename}"
-        except Exception:
-            pass
-
-    with open(save_path, "wb") as f:
-        f.write(raw)
-
-    return f"/static/uploads/{filename}"
-
-def _make_thumbnail_from_url(image_url: str | None, prefix: str = "thumb") -> str | None:
-    if not image_url:
-        return None
-
-    src_path = _url_to_fs_path(image_url)
-    if not os.path.exists(src_path):
-        return None
-
-    try:
-        with Image.open(src_path) as img:
-            img = ImageOps.exif_transpose(img)
-
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-            elif img.mode == "L":
-                img = img.convert("RGB")
-
-            img.thumbnail((360, 360))
-
-            filename = f"{prefix}_{uuid.uuid4().hex}.jpg"
-            save_path = os.path.join(UPLOAD_DIR, filename)
-            img.save(save_path, format="JPEG", quality=82, optimize=True)
-
-            return f"/static/uploads/{filename}"
-    except Exception as e:
-        print("THUMBNAIL ERROR:", e)
-        return None
-
-
-async def _ensure_photo_thumb_column():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("PRAGMA table_info(actors)")
-        cols = [r[1] for r in await cur.fetchall()]
-        if "photo_thumb_path" not in cols:
-            await db.execute("ALTER TABLE actors ADD COLUMN photo_thumb_path TEXT")
-            await db.commit()
-
-def _try_remove_by_url(url: str | None):
-    if not url:
-        return
-    rel = url.lstrip("/").replace("/", os.sep)
-    if os.path.exists(rel):
-        try:
-            os.remove(rel)
-        except:
-            pass
-
-
-def _url_to_fs_path(url: str) -> str:
-    return url.lstrip("/").replace("/", os.sep)
-
-def _safe_download_filename(prefix: str, ext: str) -> str:
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{prefix}_{now}.{ext}"
 
 def _get_blank_layout(prs: Presentation):
     # 보통 6번이 blank 레이아웃인 경우가 많음
@@ -264,7 +157,6 @@ def merge_pptx_files(input_paths: list[str], output_path: str):
     merged.save(output_path)
 
 
-
 def _find_soffice_exe() -> str | None:
     p = shutil.which("soffice")
     if p:
@@ -280,7 +172,7 @@ def _make_ppt_preview_via_libreoffice(ppt_public_url: str) -> str | None:
     if ext not in [".ppt", ".pptx"]:
         return None
 
-    ppt_path = _url_to_fs_path(ppt_public_url)
+    ppt_path = url_to_fs_path(ppt_public_url)
     if not os.path.exists(ppt_path):
         return None
 
@@ -331,49 +223,7 @@ def _make_ppt_preview_via_libreoffice(ppt_public_url: str) -> str | None:
 def _make_ppt_first_slide_preview(ppt_public_url: str) -> str | None:
     return _make_ppt_preview_via_libreoffice(ppt_public_url)
 
-def _normalize_uploadfiles(
-    files: Union[List[UploadFile], UploadFile, None]
-) -> List[UploadFile]:
-    """
-    FastAPI에서 multipart 파일이
-    - 여러개면 List[UploadFile]
-    - 한개면 UploadFile
-    - 없으면 None
-    로 들어오는 경우가 있어서,
-    항상 List[UploadFile]로 정규화해주는 함수.
-    """
-    if files is None:
-        return []
-    if isinstance(files, list):
-        return files
-    return [files]
 
-def _clean_birth_year(value) -> int | None:
-    if value is None:
-        return None
-    s = "".join(ch for ch in str(value).strip() if ch.isdigit())[:4]
-    if len(s) != 4:
-        return None
-    return int(s)
-
-def _clean_date(value: str | None) -> str | None:
-    if not value:
-        return None
-    value = value.strip()
-
-     # 🔥 이거 추가
-    if len(value) >= 10:
-        value = value[:10]
-
-    # YYYY-MM-DD만 허용
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        return None
-
-    try:
-        dt = datetime.strptime(value, "%Y-%m-%d")
-        return dt.strftime("%Y-%m-%d")
-    except ValueError:
-        return None
     
 async def normalize_actor_data():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -387,9 +237,9 @@ async def normalize_actor_data():
         for row in rows:
             actor_id = row["id"]
 
-            clean_birth_year = _clean_birth_year(row["birth_year"])
-            clean_contract_date = _clean_date(row["contract_date"])
-            clean_contract_end_date = _clean_date(row["contract_end_date"])
+            birth_year_value = clean_birth_year(row["birth_year"])
+            clean_contract_date = clean_date(row["contract_date"])
+            clean_contract_end_date = clean_date(row["contract_end_date"])
 
             if clean_contract_date and not clean_contract_end_date:
                 try:
@@ -406,7 +256,7 @@ async def normalize_actor_data():
                     contract_end_date=?
                 WHERE id=?
             """, (
-                clean_birth_year,
+                birth_year_value,
                 clean_contract_date,
                 clean_contract_end_date,
                 actor_id
@@ -414,304 +264,6 @@ async def normalize_actor_data():
 
         await db.commit()
 
-async def migrate_legacy_log_tables():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        async def get_columns(table_name: str):
-            cur = await db.execute(f"PRAGMA table_info({table_name})")
-            rows = await cur.fetchall()
-            return [row["name"] for row in rows]
-
-        # -----------------------------
-        # class_logs: log_date -> meet_date
-        # -----------------------------
-        class_cols = await get_columns("class_logs")
-        if class_cols and "meet_date" not in class_cols and "log_date" in class_cols:
-            await db.execute("ALTER TABLE class_logs RENAME TO class_logs_old")
-
-            await db.execute("""
-                CREATE TABLE class_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    actor_id INTEGER NOT NULL,
-                    meet_date TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-                )
-            """)
-
-            await db.execute("""
-                INSERT INTO class_logs (id, actor_id, meet_date, content, created_at)
-                SELECT id, actor_id, log_date, content, created_at
-                FROM class_logs_old
-            """)
-
-            await db.execute("DROP TABLE class_logs_old")
-
-        # -----------------------------
-        # casting_management_logs: log_date -> meet_date
-        # -----------------------------
-        cm_cols = await get_columns("casting_management_logs")
-        if cm_cols and "meet_date" not in cm_cols and "log_date" in cm_cols:
-            await db.execute("ALTER TABLE casting_management_logs RENAME TO casting_management_logs_old")
-
-            await db.execute("""
-                CREATE TABLE casting_management_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    actor_id INTEGER NOT NULL,
-                    meet_date TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-                )
-            """)
-
-            await db.execute("""
-                INSERT INTO casting_management_logs (id, actor_id, meet_date, content, created_at)
-                SELECT id, actor_id, log_date, content, created_at
-                FROM casting_management_logs_old
-            """)
-
-            await db.execute("DROP TABLE casting_management_logs_old")
-
-        # -----------------------------
-        # casting_meetings: 혹시 예전 log_date면 교정
-        # -----------------------------
-        cmeet_cols = await get_columns("casting_meetings")
-        if cmeet_cols and "meet_date" not in cmeet_cols and "log_date" in cmeet_cols:
-            await db.execute("ALTER TABLE casting_meetings RENAME TO casting_meetings_old")
-
-            await db.execute("""
-                CREATE TABLE casting_meetings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    actor_id INTEGER NOT NULL,
-                    meet_date TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-                )
-            """)
-
-            await db.execute("""
-                INSERT INTO casting_meetings (id, actor_id, meet_date, content, created_at)
-                SELECT id, actor_id, log_date, content, created_at
-                FROM casting_meetings_old
-            """)
-
-            await db.execute("DROP TABLE casting_meetings_old")
-
-        # -----------------------------
-        # first_meetings: 혹시 예전 log_date면 교정
-        # -----------------------------
-        first_cols = await get_columns("first_meetings")
-        if first_cols and "meet_date" not in first_cols and "log_date" in first_cols:
-            await db.execute("ALTER TABLE first_meetings RENAME TO first_meetings_old")
-
-            await db.execute("""
-                CREATE TABLE first_meetings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    actor_id INTEGER NOT NULL,
-                    meet_date TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-                )
-            """)
-
-            await db.execute("""
-                INSERT INTO first_meetings (id, actor_id, meet_date, content, created_at)
-                SELECT id, actor_id, log_date, content, created_at
-                FROM first_meetings_old
-            """)
-
-            await db.execute("DROP TABLE first_meetings_old")
-
-        await db.commit()
-
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-def verify_password(password: str, password_hash: str) -> bool:
-    return pwd_context.verify(password, password_hash)
-
-
-async def get_current_user(request: Request):
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return None
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT id, username, display_name, role, is_active
-            FROM users
-            WHERE id = ?
-        """, (user_id,))
-        user = await cur.fetchone()
-
-    if not user:
-        request.session.clear()
-        return None
-
-    if not user["is_active"]:
-        request.session.clear()
-        return None
-
-    return dict(user)
-
-
-def is_admin(user) -> bool:
-    return bool(user and user.get("role") == "admin")
-
-def is_staff(user) -> bool:
-    return bool(user and user.get("role") == "staff")
-
-def is_teacher(user) -> bool:
-    return bool(user and user.get("role") == "teacher")
-
-
-def can_edit_actor(user) -> bool:
-    if not user:
-        return False
-    return user["role"] in ["admin", "staff", "teacher"]
-
-
-def can_delete_actor(user) -> bool:
-    if not user:
-        return False
-    return user["role"] == "admin"
-
-
-def can_create_actor(user) -> bool:
-    if not user:
-        return False
-    return user["role"] in ["admin", "staff"]
-
-
-async def teacher_can_access_actor(user, actor_id: int) -> bool:
-    if not user:
-        return False
-
-    if user["role"] in ["admin", "staff"]:
-        return True
-
-    if user["role"] != "teacher":
-        return False
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        # 1) 기존 직접 배정도 허용
-        cur = await db.execute("""
-            SELECT id
-            FROM actors
-            WHERE id = ? AND teacher_user_id = ?
-        """, (actor_id, user["id"]))
-        row = await cur.fetchone()
-        if row:
-            return True
-
-        # 2) 수업 배정 기반 허용
-        cur = await db.execute("""
-            SELECT la.id
-            FROM lesson_actor_assignments la
-            JOIN teacher_lessons tl
-              ON tl.id = la.lesson_id
-            WHERE la.actor_id = ?
-              AND tl.teacher_user_id = ?
-            LIMIT 1
-        """, (actor_id, user["id"]))
-        row = await cur.fetchone()
-
-    return row is not None
-
-
-async def require_login_user(request: Request):
-    user = await get_current_user(request)
-    if not user:
-        raise HTTPException(status_code=403, detail="로그인이 필요합니다.")
-    return user
-
-
-async def require_admin(request: Request):
-    user = await require_login_user(request)
-    if user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
-    return user
-
-async def require_actor_delete_permission(request: Request):
-    user = await require_login_user(request)
-
-    if user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="배우 삭제는 관리자만 가능합니다.")
-
-    return user
-
-async def require_actor_edit_permission(request: Request, actor_id: int):
-    user = await require_login_user(request)
-
-    if user["role"] in ["admin", "staff"]:
-        return user
-
-    if user["role"] == "teacher":
-        allowed = await teacher_can_access_actor(user, actor_id)
-        if not allowed:
-            raise HTTPException(status_code=403, detail="담당 배우만 수정할 수 있습니다.")
-        return user
-
-    raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
-
-async def require_teacher_classlog_permission(request: Request, actor_id: int):
-    user = await require_login_user(request)
-
-    if user["role"] in ["admin", "staff"]:
-        return user
-
-    if user["role"] == "teacher":
-        allowed = await teacher_can_access_actor(user, actor_id)
-        if not allowed:
-            raise HTTPException(status_code=403, detail="담당 배우만 접근할 수 있습니다.")
-        return user
-
-    raise HTTPException(status_code=403, detail="권한이 없습니다.")
-
-
-async def require_admin_or_staff_only(request: Request):
-    user = await require_login_user(request)
-
-    if user["role"] in ["admin", "staff"]:
-        return user
-
-    raise HTTPException(status_code=403, detail="관리자 또는 staff만 사용할 수 있습니다.")
-
-
-async def require_record_delete_permission(request: Request, actor_id: int):
-    user = await require_login_user(request)
-
-    if user["role"] in ["admin", "staff"]:
-        return user
-
-    raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
-
-async def require_admin_or_staff(request: Request):
-    user = await require_login_user(request)
-    if user["role"] not in ["admin", "staff"]:
-        raise HTTPException(status_code=403, detail="관리자 또는 스태프 권한이 필요합니다.")
-    return user
-
-
-async def require_classlog_permission(request: Request, actor_id: int):
-    user = await require_login_user(request)
-
-    if user["role"] in ["admin", "staff"]:
-        return user
-
-    if user["role"] == "teacher":
-        allowed = await teacher_can_access_actor(user, actor_id)
-        if not allowed:
-            raise HTTPException(status_code=403, detail="담당 배우만 접근할 수 있습니다.")
-        return user
-
-    raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
 async def get_user_by_id(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -742,224 +294,6 @@ async def get_admin_users_page_context(current_user, error: str = "", success: s
 # -------------------------
 # DB 초기화
 # -------------------------
-async def init_db():
-    ensure_dirs()
-    async with aiosqlite.connect(DB_PATH) as db:
-        # actors
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS actors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            birth_year INTEGER,
-            height_cm REAL,
-            weight_kg REAL,
-            photo_path TEXT,
-            bio TEXT,
-
-            school TEXT,
-            hobby TEXT,
-            specialty TEXT,
-            contract_date TEXT,
-            manager_name TEXT,
-
-            compcard_path TEXT,
-            compcard_preview_path TEXT,
-
-            acting_video_path TEXT
-        )
-        """)
-
-        # ✅ 기존 DB에 컬럼이 없을 수도 있으니 안전하게 추가
-        cur = await db.execute("PRAGMA table_info(actors)")
-        cols = [r[1] for r in await cur.fetchall()]
-
-        async def add_col_if_missing(col: str, col_type: str):
-            if col not in cols:
-                await db.execute(f"ALTER TABLE actors ADD COLUMN {col} {col_type}")
-
-        await add_col_if_missing("compcard_preview_path", "TEXT")
-        await add_col_if_missing("school", "TEXT")
-        await add_col_if_missing("hobby", "TEXT")
-        await add_col_if_missing("specialty", "TEXT")
-        await add_col_if_missing("contract_date", "TEXT")
-        await add_col_if_missing("contract_end_date", "TEXT")
-        await add_col_if_missing("manager_name", "TEXT")
-        await add_col_if_missing("gender", "TEXT")
-        await add_col_if_missing("photo_thumb_path", "TEXT")
-        await add_col_if_missing("teacher_user_id", "INTEGER")
-        await add_col_if_missing("phone_last4", "TEXT")
-        
-        await db.commit()
-
-        # 수업일지
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS class_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id INTEGER NOT NULL,
-            meet_date TEXT NOT NULL,   -- YYYY-MM-DD
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-        )
-        """)
-
-        # 오디션
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS auditions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id INTEGER NOT NULL,
-            aud_date TEXT NOT NULL,   -- YYYY-MM-DD
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-        )
-        """)
-
-        # ✅ 연기영상(누적)
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS acting_videos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id INTEGER NOT NULL,
-            video_path TEXT NOT NULL,
-            original_name TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-        )
-        """)
-
-        # 혹시 예전 오류(컬럼명 불일치)로 망가진 테이블이면 재생성
-        cur = await db.execute("PRAGMA table_info(acting_videos)")
-        vcols = [r[1] for r in await cur.fetchall()]
-        if "video_path" not in vcols:
-            await db.execute("DROP TABLE IF EXISTS acting_videos")
-            await db.execute("""
-            CREATE TABLE acting_videos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                actor_id INTEGER NOT NULL,
-                video_path TEXT NOT NULL,
-                original_name TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-            )
-            """)
-
-        # 캐스팅관리 기록(항목형)
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS casting_management_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id INTEGER NOT NULL,
-            meet_date TEXT NOT NULL,   -- YYYY-MM-DD
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-        )
-        """)
-
-        # 캐스팅 미팅 기록(항목형)
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS casting_meetings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id INTEGER NOT NULL,
-            meet_date TEXT NOT NULL,  -- YYYY-MM-DD
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-        )
-        """)
-
-        # 첫 미팅 기록(항목형)
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS first_meetings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id INTEGER NOT NULL,
-            meet_date TEXT NOT NULL,  -- YYYY-MM-DD
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-        )
-        """)
-
-                # users
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            display_name TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('admin', 'staff', 'teacher')),
-            is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
-        )
-        """)
-
-                # teacher_profiles
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS teacher_profiles (
-            user_id INTEGER PRIMARY KEY,
-            lesson_subject TEXT,
-            lesson_days TEXT,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """)
-
-        # teacher_lessons
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS teacher_lessons (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            teacher_user_id INTEGER NOT NULL,
-            lesson_name TEXT,
-            lesson_days TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(teacher_user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """)
-
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS lesson_actor_assignments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lesson_id INTEGER NOT NULL,
-            actor_id INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(lesson_id, actor_id),
-            FOREIGN KEY(lesson_id) REFERENCES teacher_lessons(id) ON DELETE CASCADE,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE
-        )
-        """)
-
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS attendance_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lesson_id INTEGER NOT NULL,
-            actor_id INTEGER NOT NULL,
-            attendance_date TEXT NOT NULL,   -- YYYY-MM-DD
-            status TEXT NOT NULL DEFAULT '미체크',   -- 출석 / 결석 / 지각 / 보강 / 미체크
-            phone_input TEXT,
-            feedback TEXT,
-            checked_by_user_id INTEGER,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            UNIQUE(lesson_id, actor_id, attendance_date),
-            FOREIGN KEY(lesson_id) REFERENCES teacher_lessons(id) ON DELETE CASCADE,
-            FOREIGN KEY(actor_id) REFERENCES actors(id) ON DELETE CASCADE,
-            FOREIGN KEY(checked_by_user_id) REFERENCES users(id) ON DELETE SET NULL
-        )
-        """)
-
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_lesson_actor_assignments_lesson_id ON lesson_actor_assignments(lesson_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_lesson_actor_assignments_actor_id ON lesson_actor_assignments(actor_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_class_logs_actor_id ON class_logs(actor_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_auditions_actor_id ON auditions(actor_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_acting_videos_actor_id ON acting_videos(actor_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_casting_management_logs_actor_id ON casting_management_logs(actor_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_casting_meetings_actor_id ON casting_meetings(actor_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_first_meetings_actor_id ON first_meetings(actor_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_actors_teacher_user_id ON actors(teacher_user_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_attendance_logs_lesson_date ON attendance_logs(lesson_id, attendance_date)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_attendance_logs_actor_date ON attendance_logs(actor_id, attendance_date)")
-
-        await db.commit()
 
 async def ensure_default_admin():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -984,14 +318,6 @@ async def ensure_default_admin():
         ))
         await db.commit()
         print("기본 관리자 계정 생성 완료: admin / 1234")
-
-
-@app.on_event("startup")
-async def on_startup():
-    await init_db()
-    await migrate_legacy_log_tables()
-    await normalize_actor_data()
-    await ensure_default_admin()
 
 
 @app.get("/where", response_class=PlainTextResponse)
@@ -3090,7 +2416,7 @@ async def download_merged_compcards_pdf(
         found_pdf = None
 
         for url in candidate_urls:
-            fs_path = _url_to_fs_path(url)
+            fs_path = url_to_fs_path(url)
 
             if os.path.exists(fs_path) and fs_path.lower().endswith(".pdf"):
                 found_pdf = fs_path
@@ -3106,7 +2432,7 @@ async def download_merged_compcards_pdf(
 
     ensure_dirs()
 
-    output_filename = _safe_download_filename("merged_compcards", "pdf")
+    output_filename = safe_download_filename("merged_compcards", "pdf")
     output_path = os.path.join(MERGED_DIR, output_filename)
 
     writer = PdfWriter()
@@ -3160,7 +2486,7 @@ async def download_selected_compcards_pdf(actor_ids: list[int] = Form(...)):
         for url in candidate_urls:
             if not url:
                 continue
-            fs_path = _url_to_fs_path(url)
+            fs_path = url_to_fs_path(url)
             if os.path.exists(fs_path) and fs_path.lower().endswith(".pdf"):
                 found_pdf = fs_path
                 break
@@ -3435,9 +2761,9 @@ async def actor_new(
     specialty = (specialty or "").strip()
     bio = (bio or "").strip()
 
-    birth_year_clean = _clean_birth_year(birth_year)
-    contract_date_clean = _clean_date(contract_date)
-    contract_end_date_clean = _clean_date(contract_end_date)
+    birth_year_clean = clean_birth_year(birth_year)
+    contract_date_clean = clean_date(contract_date)
+    contract_end_date_clean = clean_date(contract_end_date)
 
     if contract_date_clean and not contract_end_date_clean:
         try:
@@ -3469,13 +2795,13 @@ async def actor_new(
     photo_path = None
     photo_thumb_path = None
     if photo and photo.filename:
-        photo_path = _save_upload(photo, "photo")
-        photo_thumb_path = _make_thumbnail_from_url(photo_path, "photo_thumb")
+        photo_path = save_upload(photo, "photo")
+        photo_thumb_path = make_thumbnail_from_url(photo_path, "photo_thumb")
 
     compcard_path = None
     compcard_preview_path = None
     if compcard and compcard.filename:
-        compcard_path = _save_upload(compcard, "compcard")
+        compcard_path = save_upload(compcard, "compcard")
 
         ext = os.path.splitext(compcard.filename or "")[1].lower()
         if ext == ".pdf":
@@ -3517,12 +2843,12 @@ async def actor_new(
 
         actor_id = cur.lastrowid
 
-        video_files = _normalize_uploadfiles(acting_videos)
+        video_files = normalize_uploadfiles(acting_videos)
         now = datetime.now().isoformat(timespec="seconds")
 
         for video in video_files:
             if video and video.filename:
-                video_path = _save_upload(video, "acting_video")
+                video_path = save_upload(video, "acting_video")
                 await db.execute("""
                     INSERT INTO acting_videos (actor_id, video_path, original_name, created_at)
                     VALUES (?, ?, ?, ?)
@@ -3586,9 +2912,9 @@ async def actor_edit(
     specialty = (specialty or "").strip()
     bio = (bio or "").strip()
 
-    birth_year_clean = _clean_birth_year(birth_year)
-    contract_date_clean = _clean_date(contract_date)
-    contract_end_date_clean = _clean_date(contract_end_date)
+    birth_year_clean = clean_birth_year(birth_year)
+    contract_date_clean = clean_date(contract_date)
+    contract_end_date_clean = clean_date(contract_end_date)
 
     if contract_date_clean and not contract_end_date_clean:
         try:
@@ -3623,19 +2949,19 @@ async def actor_edit(
     photo_path = actor.get("photo_path")
     photo_thumb_path = actor.get("photo_thumb_path")
     if photo and photo.filename:
-        _try_remove_by_url(actor.get("photo_path"))
-        _try_remove_by_url(actor.get("photo_thumb_path"))
-        photo_path = _save_upload(photo, "photo")
-        photo_thumb_path = _make_thumbnail_from_url(photo_path, "photo_thumb")
+        try_remove_by_url(actor.get("photo_path"))
+        try_remove_by_url(actor.get("photo_thumb_path"))
+        photo_path = save_upload(photo, "photo")
+        photo_thumb_path = make_thumbnail_from_url(photo_path, "photo_thumb")
 
     compcard_path = actor.get("compcard_path")
     compcard_preview_path = actor.get("compcard_preview_path")
     if compcard and compcard.filename:
-        _try_remove_by_url(actor.get("compcard_path"))
+        try_remove_by_url(actor.get("compcard_path"))
         if actor.get("compcard_preview_path") and actor.get("compcard_preview_path") != actor.get("compcard_path"):
-            _try_remove_by_url(actor.get("compcard_preview_path"))
+            try_remove_by_url(actor.get("compcard_preview_path"))
 
-        compcard_path = _save_upload(compcard, "compcard")
+        compcard_path = save_upload(compcard, "compcard")
         ext = os.path.splitext(compcard.filename or "")[1].lower()
 
         if ext == ".pdf":
@@ -3692,12 +3018,12 @@ async def actor_edit(
             actor_id,
         ))
 
-        video_files = _normalize_uploadfiles(acting_videos)
+        video_files = normalize_uploadfiles(acting_videos)
         now = datetime.now().isoformat(timespec="seconds")
 
         for video in video_files:
             if video and video.filename:
-                video_path = _save_upload(video, "acting_video")
+                video_path = save_upload(video, "acting_video")
                 await db.execute("""
                     INSERT INTO acting_videos (actor_id, video_path, original_name, created_at)
                     VALUES (?, ?, ?, ?)
@@ -3742,13 +3068,13 @@ async def actor_delete(request: Request, actor_id: int):
         await db.commit()
 
     if actor_row:
-        _try_remove_by_url(actor_row["photo_path"])
-        _try_remove_by_url(actor_row["compcard_path"])
-        _try_remove_by_url(actor_row["compcard_preview_path"])
-        _try_remove_by_url(actor_row["acting_video_path"])
+        try_remove_by_url(actor_row["photo_path"])
+        try_remove_by_url(actor_row["compcard_path"])
+        try_remove_by_url(actor_row["compcard_preview_path"])
+        try_remove_by_url(actor_row["acting_video_path"])
 
     for vr in video_rows:
-        _try_remove_by_url(vr["video_path"])
+        try_remove_by_url(vr["video_path"])
 
     return RedirectResponse("/", status_code=303)
 
@@ -3768,7 +3094,7 @@ async def delete_acting_video(request: Request, actor_id: int, video_id: int):
         await db.commit()
 
     if row:
-        _try_remove_by_url(row["video_path"])
+        try_remove_by_url(row["video_path"])
 
     # ✅ 앵커 삭제 -> tab=video
     return RedirectResponse(actor_url(actor_id, "video"), status_code=303)
@@ -3777,7 +3103,6 @@ async def delete_acting_video(request: Request, actor_id: int, video_id: int):
 # -------------------------
 # 수업일지 항목 CRUD
 # -------------------------
-
 
 
 @app.get("/actors/{actor_id}/classlogs/new")
@@ -3865,8 +3190,6 @@ async def audition_new_post(request: Request, actor_id: int, aud_date: str = For
     return RedirectResponse(actor_url(actor_id, "auditions"), status_code=303)
 
 
-
-
 @app.get("/actors/{actor_id}/auditions/{aud_id}/edit")
 async def audition_edit(request: Request, actor_id: int, aud_id: int):
     current_user = await require_actor_edit_permission(request, actor_id)
@@ -3906,7 +3229,6 @@ async def audition_delete(request: Request, actor_id: int, aud_id: int):
 # -------------------------
 # 캐스팅관리 기록 항목 CRUD
 # -------------------------
-
 
 
 @app.get("/actors/{actor_id}/casting-management/new")
@@ -3989,7 +3311,6 @@ async def casting_mgmt_delete(request: Request, actor_id: int, item_id: int):
 # -------------------------
 
 
-
 @app.get("/actors/{actor_id}/casting-meetings/new")
 async def casting_meeting_new(request: Request, actor_id: int):
     current_user = await require_actor_edit_permission(request, actor_id)
@@ -4068,7 +3389,6 @@ async def casting_meeting_delete(request: Request, actor_id: int, item_id: int):
 # -------------------------
 # 첫 미팅 기록 항목 CRUD
 # -------------------------
-
 
 
 @app.get("/actors/{actor_id}/first-meetings/new")
