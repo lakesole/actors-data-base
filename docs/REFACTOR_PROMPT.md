@@ -109,6 +109,7 @@ Actor_db2/
     ├── nginx.conf
     ├── package.json
     ├── vite.config.ts               # 개발 시 /api, /media → localhost:8000 프록시
+    ├── e2e/smoke.mjs                # Playwright 스모크 테스트 (npm run e2e)
     └── src/
         ├── main.tsx
         ├── app/                     # 라우팅, 레이아웃(base.html 대체), 인증 가드
@@ -249,7 +250,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
   - [x] attendance
   - [x] compcards
 - [x] Phase 4. JSON API 추가
-- [ ] Phase 5. 프론트엔드 구축
+- [x] Phase 5. 프론트엔드 구축
 - [ ] Phase 6. Jinja 제거와 배포
 
 > 단계를 끝내면 해당 단계의 체크박스와 위 진행 현황을 함께 체크한다.
@@ -309,12 +310,12 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [x] **완료 조건**: `docs/routes-before.md`의 모든 기능에 대응하는 API가 있고, `/docs`(OpenAPI)에서 확인할 수 있다.
 
 ### Phase 5. 프론트엔드 구축
-- [ ] `frontend/`에 Vite + React + TypeScript 프로젝트를 만든다. dev 프록시를 설정한다.
-- [ ] `shared/api/http.ts`: `credentials: "include"`, JSON 에러 파싱, 401이면 로그인 화면으로, `KIOSK_MODE`면 키오스크 화면으로 보낸다.
-- [ ] `app/`: 라우터, 공통 레이아웃(base.html 대체), 역할 기반 라우트 가드.
-- [ ] 기존 `style.css`를 `shared/styles/`로 옮겨서 화면 모양을 최대한 유지한다. 디자인 개편은 이 작업 범위가 아니다.
-- [ ] 기능별로 화면을 옮긴다. 순서는 Phase 3과 같다. 각 기능 폴더에 `api.ts`, `types.ts`, `*Page.tsx`, 해당 기능 전용 컴포넌트를 둔다.
-- [ ] 템플릿 → 화면 대응
+- [x] `frontend/`에 Vite + React + TypeScript 프로젝트를 만든다. dev 프록시를 설정한다.
+- [x] `shared/api/http.ts`: `credentials: "include"`, JSON 에러 파싱, 401이면 로그인 화면으로, `KIOSK_MODE`면 키오스크 화면으로 보낸다.
+- [x] `app/`: 라우터, 공통 레이아웃(base.html 대체), 역할 기반 라우트 가드.
+- [x] 기존 `style.css`를 `shared/styles/`로 옮겨서 화면 모양을 최대한 유지한다. 디자인 개편은 이 작업 범위가 아니다.
+- [x] 기능별로 화면을 옮긴다. 순서는 Phase 3과 같다. 각 기능 폴더에 `api.ts`, `types.ts`, `*Page.tsx`, 해당 기능 전용 컴포넌트를 둔다.
+- [x] 템플릿 → 화면 대응
 
 | Jinja 템플릿 | 프론트 기능 폴더 |
 |---|---|
@@ -325,7 +326,8 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 | attendance.html, attendance_kiosk.html | attendance |
 | base.html | app (레이아웃) |
 
-- [ ] **완료 조건**: 프론트엔드만으로 모든 기능을 사용할 수 있다. 역할별(admin/staff/teacher)과 키오스크 모드를 직접 확인한다.
+- [x] **완료 조건**: 프론트엔드만으로 모든 기능을 사용할 수 있다. 역할별(admin/staff/teacher)과 키오스크 모드를 직접 확인한다.
+  → `frontend/e2e/smoke.mjs`(Playwright)로 비로그인/admin/teacher/키오스크 19개 시나리오를 실제 브라우저에서 확인했다. staff 권한은 API 테스트로 확인했다.
 
 ### Phase 6. Jinja 제거와 배포
 - [ ] 백엔드에서 Jinja 라우트, `templates/`, `static/`, `jinja2` 의존성을 삭제한다. 백엔드에는 `/api`와 `/media`만 남는다.

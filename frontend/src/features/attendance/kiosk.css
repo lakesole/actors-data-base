@@ -1,0 +1,312 @@
+/* 태블릿 출결 화면 전용 스타일 (기존 attendance_kiosk.html에서 옮김, 클래스에 kiosk- 접두어) */
+.kiosk-page{
+  --bg:#f5f5f7;
+  --card:#ffffff;
+  --card-soft:#fafafa;
+  --line:#e5e5ea;
+  --text:#111111;
+  --sub:#6e6e73;
+  --key:#ffffff;
+  --key-dark:#f0f1f4;
+  --shadow:0 10px 30px rgba(0,0,0,0.06);
+  --shadow-soft:0 4px 14px rgba(0,0,0,0.05);
+  --radius-xl:32px;
+  --radius-lg:24px;
+  --radius-md:18px;
+}
+
+
+.kiosk-page{
+  position:fixed;
+  inset:0;
+  overflow:auto;
+  background:var(--bg);
+  color:var(--text);
+  font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  min-height:100%;
+}
+
+.kiosk-page{
+  padding:4px;
+}
+
+.kiosk-wrap{
+  width:100%;
+  max-width:1200px;
+  margin:0 auto;
+}
+
+.kiosk-hero{
+  margin-bottom:6px;
+}
+
+.kiosk-title{
+  font-size:42px;
+  line-height:1.05;
+  font-weight:800;
+  letter-spacing:-0.04em;
+  margin:0 0 10px 0;
+}
+
+.kiosk-sub{
+  font-size:14px;
+  color:var(--sub);
+  line-height:1.2;
+  margin:0;
+}
+
+.kiosk-date-card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:20px;
+  padding:10px 14px;
+  box-shadow:var(--shadow-soft);
+  display:inline-flex;
+  flex-direction:column;
+  gap:2px;
+  margin-bottom:8px;
+  min-width:160px;
+}
+
+.kiosk-date-card .kiosk-label{
+  font-size:14px;
+  color:var(--sub);
+  font-weight:600;
+}
+
+.kiosk-date-card .kiosk-value{
+  font-size:24px;
+  font-weight:800;
+  letter-spacing:-0.03em;
+}
+
+.kiosk-main-card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:24px;
+  padding:10px;
+  box-shadow:var(--shadow);
+}
+
+.kiosk-screen{
+  background:var(--card-soft);
+  border:1px solid #ededf0;
+  border-radius:20px;
+  min-height:170px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:14px 12px;
+  margin-bottom:10px;
+}
+
+.kiosk-guide{
+  font-size:28px;
+  font-weight:800;
+  letter-spacing:-0.04em;
+  margin:0 0 12px 0;
+}
+
+.kiosk-digits{
+  display:flex;
+  gap:10px;
+  margin-bottom:8px;
+}
+
+.kiosk-digit-box{
+  width:64px;
+  height:72px;
+  border-radius:16px;
+  background:#f1f2f6;
+  border:1px solid #e6e7eb;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:34px;
+  font-weight:800;
+  letter-spacing:-0.02em;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.75);
+}
+
+.kiosk-digit-box.kiosk-empty{
+  color:#c2c5cc;
+}
+
+.kiosk-message{
+  min-height:20px;
+  font-size:16px;
+  font-weight:700;
+  letter-spacing:-0.03em;
+}
+
+.kiosk-message.kiosk-success{ color:#1d7a43; }
+.kiosk-message.kiosk-error{ color:#d64045; }
+
+.kiosk-pad-title{
+  text-align:center;
+  color:var(--sub);
+  font-size:13px;
+  font-weight:700;
+  margin-bottom:6px;
+}
+
+.kiosk-grid{
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:10px;
+}
+
+.kiosk-key{
+  height:64px;
+  border:none;
+  border-radius:16px;
+  background:var(--key);
+  color:var(--text);
+  font-size:28px;
+  font-weight:800;
+  letter-spacing:-0.03em;
+  box-shadow:var(--shadow-soft);
+  cursor:pointer;
+  transition:transform .08s ease, box-shadow .12s ease, background .12s ease;
+}
+
+.kiosk-key:hover{
+  box-shadow:0 8px 18px rgba(0,0,0,0.08);
+}
+
+.kiosk-key:active{
+  transform:scale(0.98);
+}
+
+.kiosk-key.kiosk-sub{
+  background:var(--key-dark);
+  font-size:16px;
+  font-weight:700;
+}
+
+.kiosk-bottom{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:8px;
+}
+
+.kiosk-action{
+  height:64px;
+  border:none;
+  border-radius:16px;
+  background:#111111;
+  color:#ffffff;
+  font-size:20px;
+  font-weight:800;
+  letter-spacing:-0.03em;
+  box-shadow:var(--shadow-soft);
+  cursor:pointer;
+  transition:transform .08s ease, opacity .12s ease;
+}
+
+.kiosk-action.kiosk-secondary{
+  background:#ececf1;
+  color:#111111;
+}
+
+.kiosk-action:active{
+  transform:scale(0.98);
+}
+
+@media (max-width: 1024px){
+  .kiosk-page{
+    padding:2px;
+  }
+
+  .kiosk-hero{
+    margin-bottom:4px;
+  }
+
+  .kiosk-sub{
+    font-size:12px;
+    line-height:1.15;
+  }
+
+  .kiosk-date-card{
+    padding:8px 12px;
+    margin-bottom:6px;
+    min-width:140px;
+    border-radius:16px;
+  }
+
+  .kiosk-date-card .kiosk-label{
+    font-size:11px;
+  }
+
+  .kiosk-date-card .kiosk-value{
+    font-size:20px;
+  }
+
+  .kiosk-main-card{
+    padding:8px;
+    border-radius:18px;
+  }
+
+  .kiosk-screen{
+    min-height:150px;
+    padding:10px 8px;
+    margin-bottom:8px;
+    border-radius:16px;
+  }
+
+  .kiosk-guide{
+    font-size:20px;
+    margin:0 0 8px 0;
+  }
+
+  .kiosk-digits{
+    gap:8px;
+    margin-bottom:6px;
+  }
+
+  .kiosk-digit-box{
+    width:50px;
+    height:56px;
+    font-size:26px;
+    border-radius:14px;
+  }
+
+  .kiosk-message{
+    min-height:18px;
+    font-size:14px;
+  }
+
+  .kiosk-pad-title{
+    font-size:12px;
+    margin-bottom:4px;
+  }
+
+  .kiosk-grid{
+    gap:6px;
+  }
+
+  .kiosk-key{
+    height:50px;
+    font-size:22px;
+    border-radius:14px;
+  }
+
+  .kiosk-key.kiosk-sub{
+    font-size:14px;
+  }
+
+  .kiosk-bottom{
+    gap:6px;
+    margin-top:6px;
+  }
+
+  .kiosk-action{
+    height:48px;
+    font-size:16px;
+    border-radius:14px;
+  }
+}
+  

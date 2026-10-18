@@ -19,5 +19,5 @@
 | 15 | 중간 | `templates/actor_detail.html` 빠른 업로드 | 상세 화면의 사진/컴카드/영상 **빠른 업로드 폼이 `gender` 값을 보내지 않아서**, 업로드하면 배우 성별이 지워진다. (새 프론트엔드는 모든 필드를 보내므로 해당 없음) |
 | 16 | 정보 | `templates/base.html` | 로그인하지 않은 사용자에게 "보기 전용"이라고 표시하므로 #4(비로그인 목록/상세 조회)는 **의도된 동작일 수 있다.** 운영 방침 확인이 필요하다. |
 | 12 | 정보 | `main.py` | `/where` 디버그 라우트가 운영에 노출되어 있다. |
-| 13 | 중간 | `features/actors/router.py` 생성/수정 | **연기영상을 여러 개 올려도 마지막 1개만 저장된다.** `acting_videos: list[UploadFile] \| UploadFile \| None` 유니온 타입을 FastAPI가 단일 파일로 해석한다. 수정: `acting_videos: list[UploadFile] = File([])`. |
+| 13 | 중간 | `features/actors/router.py` 생성/수정 | **연기영상을 여러 개 올려도 마지막 1개만 저장된다.** `acting_videos: list[UploadFile] \| UploadFile \| None` 유니온 타입을 FastAPI가 단일 파일로 해석한다. 수정: `acting_videos: list[UploadFile] = File([])`. **새 프론트엔드에서도 같은 API를 쓰므로 동일하게 발생한다.** |
 | 14 | 낮음 | 폼 전체 | 필수 폼 필드(`Form(...)`)를 빈 값으로 보내면 FastAPI가 422 JSON을 반환해서, "아이디, 비밀번호, 이름은 필수입니다." 같은 화면 메시지는 공백만 입력했을 때만 나온다. |

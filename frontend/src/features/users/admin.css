@@ -1,0 +1,78 @@
+/* 계정 / 선생님 관리 화면 전용 스타일 (기존 admin_users.html에서 옮김) */
+.admin-tabs {
+  display:flex;
+  gap:10px;
+  margin-bottom:18px;
+  flex-wrap:wrap;
+}
+
+.admin-tab-btn {
+  border:none;
+  background:#f3f4f6;
+  color:#222;
+  border-radius:999px;
+  padding:10px 16px;
+  font-weight:700;
+  cursor:pointer;
+}
+
+.admin-tab-btn.active {
+  background:#111827;
+  color:#fff;
+}
+
+.admin-tab-panel {
+  display:none;
+}
+
+.admin-tab-panel.active {
+  display:block;
+}
+
+.admin-two-col {
+  display:grid;
+  grid-template-columns: 420px 1fr;
+  gap:20px;
+  align-items:start;
+}
+
+.admin-summary-btn {
+  border:none;
+  background:#f3f4f6;
+  color:#111;
+  border-radius:10px;
+  padding:8px 12px;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.admin-summary-btn.active {
+  background:#111827;
+  color:#fff;
+}
+
+.account-action-panel {
+  padding:14px;
+  border:1px solid #ececec;
+  border-radius:12px;
+  background:#fafafa;
+}
+
+.teacher-summary-line {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  color:#666;
+  font-size:14px;
+  margin-top:8px;
+}
+
+.teacher-summary-line .chip {
+  margin:0;
+}
+
+@media (max-width: 1100px) {
+  .admin-two-col {
+    grid-template-columns: 1fr;
+  }
+}
