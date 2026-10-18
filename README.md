@@ -46,6 +46,15 @@ npm run dev
 
 DB와 업로드 파일은 기본으로 `storage/`에 저장된다. 위치를 바꾸려면 `.env`의 `STORAGE_DIR`을 바꾼다.
 
+### 목업 데이터 (로컬 확인용)
+
+```bash
+backend/.venv/bin/python scripts/seed_sample_data.py
+```
+
+배우 60명(사진, 컴카드 포함), 선생님 3명과 수업, 기록, 최근 2주 출결을 만든다. 배우가 이미 있으면 아무것도 하지 않는다.
+계정: `admin / 1234`, `staff_choi`, `teacher_kim`, `teacher_lee`, `teacher_park` (비밀번호 `pass1234`)
+
 ### 업로드 파일 이전 (기존 운영 데이터, 한 번만)
 
 Phase 4부터 업로드 파일은 `storage/uploads`에 저장되고 `/media/uploads/...`로 서빙된다.
