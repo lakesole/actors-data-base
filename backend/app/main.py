@@ -21,8 +21,8 @@ from app.core.auth import (
     can_create_actor,
     get_current_user,
     require_actor_edit_permission,
-    require_admin,
-    require_admin_or_staff,
+    require_admin_legacy as require_admin,
+    require_admin_or_staff_legacy as require_admin_or_staff,
     require_login_user,
     require_record_delete_permission,
     teacher_can_access_actor,
@@ -38,6 +38,7 @@ from app.core.config import (
     UPLOAD_DIR,
 )
 from app.core.errors import register_error_handlers
+from app.features.auth.router import router as auth_router
 from app.core.files import (
     ensure_dirs,
     make_thumbnail_from_url,
@@ -48,7 +49,7 @@ from app.core.files import (
     url_to_fs_path,
 )
 from app.core.schema import init_db, migrate_legacy_log_tables
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password
 from app.core.templating import templates
 from app.core.validators import clean_birth_year, clean_date, validate_yyyy_mm_dd
 
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 register_error_handlers(app)
+app.include_router(auth_router)
 
 
 @app.middleware("http")
@@ -104,7 +106,6 @@ app.add_middleware(
     same_site="lax",
     https_only=SESSION_HTTPS_ONLY,
 )
-
 
 
 # -------------------------
@@ -324,163 +325,6 @@ async def ensure_default_admin():
 def where():
     return "YOU ARE SEEING: main.py (actor_db)"
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    current_user = await get_current_user(request)
-    if current_user:
-        return RedirectResponse(url="/", status_code=303)
-
-    return templates.TemplateResponse(
-        "login.html",
-        {
-            "request": request,
-            "error": "",
-            "current_user": None,
-        }
-    )
-
-
-@app.post("/login", response_class=HTMLResponse)
-async def login_post(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-):
-    username = (username or "").strip()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT id, username, password_hash, display_name, role, is_active
-            FROM users
-            WHERE username = ?
-        """, (username,))
-        user = await cur.fetchone()
-
-    if not user:
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "error": "아이디 또는 비밀번호가 올바르지 않습니다.",
-                "current_user": None,
-            }
-        )
-
-    user = dict(user)
-
-    if not user["is_active"]:
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "error": "비활성화된 계정입니다.",
-                "current_user": None,
-            }
-        )
-
-    if not verify_password(password, user["password_hash"]):
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "error": "아이디 또는 비밀번호가 올바르지 않습니다.",
-                "current_user": None,
-            }
-        )
-
-    request.session["user_id"] = user["id"]
-
-    return RedirectResponse(url="/", status_code=303)
-
-
-@app.get("/logout")
-async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse(url="/", status_code=303)
-
-@app.get("/account/password", response_class=HTMLResponse)
-async def account_password_page(request: Request):
-    current_user = await require_login_user(request)
-    return templates.TemplateResponse(
-        "account_password.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "error": "",
-            "success": request.query_params.get("success", ""),
-        }
-    )
-
-
-@app.post("/account/password", response_class=HTMLResponse)
-async def account_password_change(
-    request: Request,
-    current_password: str = Form(...),
-    new_password: str = Form(...),
-    new_password_confirm: str = Form(...),
-):
-    current_user = await require_login_user(request)
-
-    current_password = (current_password or "").strip()
-    new_password = (new_password or "").strip()
-    new_password_confirm = (new_password_confirm or "").strip()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT id, password_hash
-            FROM users
-            WHERE id = ?
-        """, (current_user["id"],))
-        user_row = await cur.fetchone()
-
-    if not user_row:
-        request.session.clear()
-        raise HTTPException(status_code=403, detail="계정을 찾을 수 없습니다.")
-
-    if not verify_password(current_password, user_row["password_hash"]):
-        return templates.TemplateResponse(
-            "account_password.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "error": "현재 비밀번호가 올바르지 않습니다.",
-                "success": "",
-            }
-        )
-
-    if len(new_password) < 4:
-        return templates.TemplateResponse(
-            "account_password.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "error": "새 비밀번호는 4자 이상이어야 합니다.",
-                "success": "",
-            }
-        )
-
-    if new_password != new_password_confirm:
-        return templates.TemplateResponse(
-            "account_password.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "error": "새 비밀번호 확인이 일치하지 않습니다.",
-                "success": "",
-            }
-        )
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            UPDATE users
-            SET password_hash = ?
-            WHERE id = ?
-        """, (hash_password(new_password), current_user["id"]))
-        await db.commit()
-
-    return RedirectResponse(url="/account/password?success=changed", status_code=303)
 
 # -------------------------
 # 관리자 계정 / 선생님 관리

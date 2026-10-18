@@ -229,9 +229,9 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [x] Phase 1. 저장소 정리
 - [x] Phase 2. 백엔드 뼈대와 core 분리
 - [ ] Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
-  - [ ] auth
-  - [ ] users
+  - [x] auth
   - [ ] teachers
+  - [ ] users
   - [ ] actors
   - [ ] actor_records
   - [ ] attendance
@@ -272,7 +272,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 ### Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
 기능 하나씩, 아래 순서로 옮긴다. **기능 하나가 끝날 때마다 테스트 실행 후 커밋한다.**
 
-순서: `auth` → `users` → `teachers` → `actors` → `actor_records` → `attendance` → `compcards`
+순서: `auth` → `teachers` → `users` → `actors` → `actor_records` → `attendance` → `compcards`
 
 각 기능마다:
 - [ ] SQL을 `repository.py`로 옮긴다. **SQL 문장은 바꾸지 않는다.**

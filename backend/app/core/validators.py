@@ -1,24 +1,24 @@
 import re
 from datetime import datetime, timedelta
 
-from fastapi import HTTPException
+from app.core.errors import BadRequest
 
 
 def validate_yyyy_mm_dd(date_str: str) -> str:
     if not date_str:
-        raise HTTPException(status_code=400, detail="날짜가 비어 있습니다.")
+        raise BadRequest("날짜가 비어 있습니다.")
 
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
-        raise HTTPException(status_code=400, detail="날짜 형식은 YYYY-MM-DD 이어야 합니다.")
+        raise BadRequest("날짜 형식은 YYYY-MM-DD 이어야 합니다.")
 
     try:
         parsed = datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        raise HTTPException(status_code=400, detail="올바른 날짜가 아닙니다.")
+        raise BadRequest("올바른 날짜가 아닙니다.")
 
     year = parsed.year
     if year < 1900 or year > 2099:
-        raise HTTPException(status_code=400, detail="연도는 1900~2099 사이의 4자리만 가능합니다.")
+        raise BadRequest("연도는 1900~2099 사이의 4자리만 가능합니다.")
 
     return date_str
 
