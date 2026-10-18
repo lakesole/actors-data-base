@@ -232,7 +232,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
   - [x] auth
   - [x] teachers
   - [x] users
-  - [ ] actors
+  - [x] actors
   - [ ] actor_records
   - [ ] attendance
   - [ ] compcards

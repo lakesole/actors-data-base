@@ -25,3 +25,6 @@ if not SECRET_KEY:
 SESSION_COOKIE_NAME = "damactors_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7일
 SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").lower() == "true"
+
+# LibreOffice 실행 파일 경로. 비우면 PATH와 기본 위치에서 찾는다.
+SOFFICE_PATH = os.getenv("SOFFICE_PATH", "")
