@@ -2,21 +2,15 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
-from datetime import datetime
-from urllib.parse import quote
 
 import aiosqlite
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi import FastAPI, Form
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pptx import Presentation
 from pypdf import PdfWriter
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.core.auth import (
-    require_admin_legacy as require_admin,
-    require_login_user,
-)
 from app.core.config import (
     DB_PATH,
     MERGED_DIR,
@@ -28,15 +22,14 @@ from app.core.config import (
 )
 from app.core.database import open_db
 from app.core.errors import register_error_handlers
+from app.features.attendance.kiosk import kiosk_mode_guard
+from app.features.attendance.router import router as attendance_router
 from app.features.actor_records.router import router as actor_records_router
 from app.core.files import ensure_dirs, safe_download_filename, url_to_fs_path
 from app.core.schema import init_db, migrate_legacy_log_tables
-from app.core.templating import templates
-from app.core.validators import validate_yyyy_mm_dd
 from app.features.actors import service as actors_service
 from app.features.actors.router import router as actors_router
 from app.features.auth.router import router as auth_router
-from app.features.teachers import service as teachers_service
 from app.features.teachers.router import router as teachers_router
 from app.features.users import service as users_service
 from app.features.users.router import router as users_router
@@ -56,6 +49,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 register_error_handlers(app)
+app.include_router(attendance_router)
 app.include_router(actor_records_router)
 app.include_router(actors_router)
 app.include_router(users_router)
@@ -63,34 +57,7 @@ app.include_router(teachers_router)
 app.include_router(auth_router)
 
 
-@app.middleware("http")
-async def kiosk_mode_guard(request: Request, call_next):
-    path = request.url.path
-
-    # 메인/관리 페이지로 들어오면 kiosk 모드 자동 해제
-    release_paths = ["/", "/attendance", "/login", "/logout"]
-    if path in release_paths:
-        request.session["kiosk_mode"] = False
-
-    # static, login/logout, kiosk 관련 경로는 허용
-    allowed_prefixes = [
-        "/static",
-        "/login",
-        "/logout",
-        "/attendance/kiosk",
-    ]
-
-    kiosk_mode = request.session.get("kiosk_mode", False)
-
-    if kiosk_mode:
-        is_allowed = any(path.startswith(prefix) for prefix in allowed_prefixes)
-        if not is_allowed:
-            return RedirectResponse(url="/attendance/kiosk", status_code=303)
-
-    response = await call_next(request)
-    return response
-
-
+app.middleware("http")(kiosk_mode_guard)
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
@@ -163,512 +130,10 @@ def where():
 # -------------------------
 
 
-async def get_all_lessons_for_attendance():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT
-                tl.id,
-                tl.lesson_name,
-                tl.lesson_days,
-                tl.teacher_user_id,
-                u.display_name AS teacher_name
-            FROM teacher_lessons tl
-            JOIN users u
-              ON u.id = tl.teacher_user_id
-            ORDER BY
-                CASE WHEN tl.lesson_name IS NULL OR tl.lesson_name = '' THEN 1 ELSE 0 END,
-                tl.lesson_name ASC,
-                tl.id DESC
-        """)
-        rows = await cur.fetchall()
-    return [dict(r) for r in rows]
-
-
-async def get_lesson_for_user(current_user, lesson_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        if current_user["role"] == "teacher":
-            cur = await db.execute("""
-                SELECT
-                    tl.id,
-                    tl.lesson_name,
-                    tl.lesson_days,
-                    tl.teacher_user_id
-                FROM teacher_lessons tl
-                WHERE tl.id = ?
-                  AND tl.teacher_user_id = ?
-            """, (lesson_id, current_user["id"]))
-        else:
-            cur = await db.execute("""
-                SELECT
-                    tl.id,
-                    tl.lesson_name,
-                    tl.lesson_days,
-                    tl.teacher_user_id
-                FROM teacher_lessons tl
-                WHERE tl.id = ?
-            """, (lesson_id,))
-
-        row = await cur.fetchone()
-
-    return dict(row) if row else None
-
-
-async def get_lesson_actors_with_attendance(lesson_id: int, attendance_date: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT
-                a.id,
-                a.name,
-                a.gender,
-                a.birth_year,
-                a.phone_last4,
-                al.status,
-                al.phone_input,
-                al.feedback
-            FROM lesson_actor_assignments la
-            JOIN actors a
-              ON a.id = la.actor_id
-            LEFT JOIN attendance_logs al
-              ON al.lesson_id = la.lesson_id
-             AND al.actor_id = la.actor_id
-             AND al.attendance_date = ?
-            WHERE la.lesson_id = ?
-            ORDER BY a.name ASC, a.id DESC
-        """, (attendance_date, lesson_id))
-
-        rows = await cur.fetchall()
-
-    return [dict(r) for r in rows]
-
-async def find_actor_by_phone_last4_in_lesson(lesson_id: int, phone_last4: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT
-                a.id,
-                a.name,
-                a.phone_last4
-            FROM lesson_actor_assignments la
-            JOIN actors a
-              ON a.id = la.actor_id
-            WHERE la.lesson_id = ?
-              AND a.phone_last4 = ?
-            ORDER BY a.name ASC, a.id DESC
-        """, (lesson_id, phone_last4))
-
-        rows = await cur.fetchall()
-
-    return [dict(r) for r in rows]
-
-async def get_today_attendance_candidates():
-    today_short = get_korean_weekday_short()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT
-                tl.id AS lesson_id,
-                tl.lesson_name,
-                tl.lesson_days,
-                a.id AS actor_id,
-                a.name,
-                a.phone_last4
-            FROM teacher_lessons tl
-            JOIN lesson_actor_assignments la
-              ON la.lesson_id = tl.id
-            JOIN actors a
-              ON a.id = la.actor_id
-            ORDER BY tl.id DESC, a.name ASC
-        """)
-        rows = await cur.fetchall()
-
-    results = []
-    seen = set()
-
-    for row in rows:
-        row = dict(row)
-
-        if not lesson_matches_today(row.get("lesson_days", "")):
-            continue
-
-        # 같은 배우가 오늘 여러 수업에 중복 연결되어 있더라도 1번만 보여주기
-        dedupe_key = row["actor_id"]
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-
-        row["today_short"] = today_short
-        results.append(row)
-
-    return results
-
-
-async def find_today_actor_by_phone_last4(phone_last4: str):
-    candidates = await get_today_attendance_candidates()
-    phone_last4 = "".join(ch for ch in str(phone_last4 or "") if ch.isdigit())[:4]
-
-    matched = []
-    for row in candidates:
-        saved = "".join(ch for ch in str(row.get("phone_last4") or "") if ch.isdigit())[:4]
-        if saved and saved == phone_last4:
-            matched.append(row)
-
-    return matched
-
-
 # -------------------------
 # 메인(검색 포함)
 # -------------------------
 
-
-def get_korean_weekday_short() -> str:
-    weekday_map = {
-        0: "월",
-        1: "화",
-        2: "수",
-        3: "목",
-        4: "금",
-        5: "토",
-        6: "일",
-    }
-    return weekday_map[datetime.now().weekday()]
-
-
-def lesson_matches_today(lesson_days: str) -> bool:
-    if not lesson_days:
-        return False
-
-    today_short = get_korean_weekday_short()
-    raw = str(lesson_days).strip()
-
-    normalized = (
-        raw.replace("요일", "")
-           .replace("/", ",")
-           .replace("|", ",")
-           .replace("·", ",")
-           .replace(" ", "")
-    )
-
-    tokens = [x for x in normalized.split(",") if x]
-
-    if today_short in tokens:
-        return True
-
-    # 혹시 "월수금" 같이 붙어있는 경우도 대응
-    if today_short in normalized:
-        return True
-
-    return False
-
-
-@app.get("/attendance", response_class=HTMLResponse)
-async def attendance_page(
-    request: Request,
-    lesson_id: str | None = None,
-    attendance_date: str | None = None,
-):
-    current_user = await require_login_user(request)
-
-    lesson_id = (lesson_id or "").strip()
-    attendance_date = (attendance_date or datetime.now().strftime("%Y-%m-%d")).strip()
-
-    try:
-        attendance_date = validate_yyyy_mm_dd(attendance_date)
-    except Exception:
-        attendance_date = datetime.now().strftime("%Y-%m-%d")
-
-    if current_user["role"] == "teacher":
-        lessons = await get_teacher_lessons(current_user["id"])
-        lessons = [
-            {
-                "id": x["id"],
-                "lesson_name": x["lesson_name"],
-                "lesson_days": x["lesson_days"],
-                "teacher_user_id": x["teacher_user_id"],
-                "teacher_name": current_user["display_name"],
-            }
-            for x in lessons
-        ]
-    else:
-        lessons = await get_all_lessons_for_attendance()
-
-    selected_lesson = None
-    actors = []
-
-    if not lesson_id and lessons:
-        lesson_id = str(lessons[0]["id"])
-
-    if lesson_id:
-        try:
-            lesson_id_int = int(lesson_id)
-        except Exception:
-            lesson_id_int = None
-
-        if lesson_id_int:
-            selected_lesson = await get_lesson_for_user(current_user, lesson_id_int)
-            if selected_lesson:
-                actors = await get_lesson_actors_with_attendance(lesson_id_int, attendance_date)
-
-    return templates.TemplateResponse(
-        "attendance.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "lessons": lessons,
-            "selected_lesson": selected_lesson,
-            "lesson_id": lesson_id,
-            "attendance_date": attendance_date,
-            "actors": actors,
-        }
-    )
-
-
-@app.post("/attendance/save")
-async def attendance_save(request: Request):
-    current_user = await require_login_user(request)
-    form = await request.form()
-
-    lesson_id_raw = str(form.get("lesson_id") or "").strip()
-    attendance_date = str(form.get("attendance_date") or "").strip()
-
-    if not lesson_id_raw:
-        raise HTTPException(status_code=400, detail="수업을 선택해주세요.")
-
-    lesson_id = int(lesson_id_raw)
-    attendance_date = validate_yyyy_mm_dd(attendance_date)
-
-    selected_lesson = await get_lesson_for_user(current_user, lesson_id)
-    if not selected_lesson:
-        raise HTTPException(status_code=403, detail="해당 수업 접근 권한이 없습니다.")
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT
-                a.id,
-                a.phone_last4
-            FROM lesson_actor_assignments la
-            JOIN actors a
-              ON a.id = la.actor_id
-            WHERE la.lesson_id = ?
-        """, (lesson_id,))
-        lesson_actors = await cur.fetchall()
-
-        for actor in lesson_actors:
-            actor_id = actor["id"]
-            saved_last4 = "".join(ch for ch in str(actor["phone_last4"] or "") if ch.isdigit())[:4]
-
-            phone_input = str(form.get(f"phone_input_{actor_id}") or "").strip()
-            phone_input_digits = "".join(ch for ch in phone_input if ch.isdigit())[:4]
-
-            status = str(form.get(f"status_{actor_id}") or "").strip()
-            feedback = str(form.get(f"feedback_{actor_id}") or "").strip()
-
-            # 상태를 안 골랐는데 번호가 맞으면 자동 출석
-            if not status:
-                if saved_last4 and phone_input_digits and saved_last4 == phone_input_digits:
-                    status = "출석"
-                else:
-                    status = "미체크"
-
-            # 1) 출결 저장
-            await db.execute("""
-                INSERT INTO attendance_logs (
-                    lesson_id, actor_id, attendance_date, status,
-                    phone_input, feedback, checked_by_user_id,
-                    created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(lesson_id, actor_id, attendance_date)
-                DO UPDATE SET
-                    status = excluded.status,
-                    phone_input = excluded.phone_input,
-                    feedback = excluded.feedback,
-                    checked_by_user_id = excluded.checked_by_user_id,
-                    updated_at = excluded.updated_at
-            """, (
-                lesson_id,
-                actor_id,
-                attendance_date,
-                status,
-                phone_input_digits,
-                feedback,
-                current_user["id"],
-                now,
-                now,
-            ))
-
-            # 2) 피드백이 있으면 트레이닝 피드백(class_logs)에도 자동 기록
-            if feedback:
-                lesson_name = ""
-                cur2 = await db.execute("""
-                    SELECT lesson_name
-                    FROM teacher_lessons
-                    WHERE id = ?
-                """, (lesson_id,))
-                lesson_row = await cur2.fetchone()
-                if lesson_row and lesson_row[0]:
-                    lesson_name = str(lesson_row[0]).strip()
-
-                classlog_content = feedback
-                if lesson_name:
-                    classlog_content = f"[{lesson_name}] {feedback}"
-
-                # 같은 날짜 + 같은 내용이 이미 있으면 중복 저장 방지
-                cur3 = await db.execute("""
-                    SELECT id
-                    FROM class_logs
-                    WHERE actor_id = ?
-                      AND meet_date = ?
-                      AND content = ?
-                    LIMIT 1
-                """, (
-                    actor_id,
-                    attendance_date,
-                    classlog_content
-                ))
-                existing_classlog = await cur3.fetchone()
-
-                if not existing_classlog:
-                    await db.execute("""
-                        INSERT INTO class_logs (
-                            actor_id, meet_date, content, created_at
-                        )
-                        VALUES (?, ?, ?, ?)
-                    """, (
-                        actor_id,
-                        attendance_date,
-                        classlog_content,
-                        now,
-                    ))
-
-        await db.commit()
-
-    return RedirectResponse(
-        url=f"/attendance?lesson_id={lesson_id}&attendance_date={quote(attendance_date)}",
-        status_code=303
-    )
-
-@app.get("/attendance/kiosk", response_class=HTMLResponse)
-async def attendance_kiosk_page(request: Request):
-    current_user = await require_admin(request)
-    request.session["kiosk_mode"] = True
-
-    today_short = get_korean_weekday_short()
-    today_candidates = await get_today_attendance_candidates()
-
-    return templates.TemplateResponse(
-        "attendance_kiosk.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "today_str": datetime.now().strftime("%Y-%m-%d"),
-            "today_short": today_short,
-            "today_candidates_count": len(today_candidates),
-        }
-    )
-
-@app.post("/attendance/kiosk/check")
-async def attendance_kiosk_check(request: Request):
-    current_user = await require_admin(request)
-    
-    form = await request.form()
-
-    phone_last4 = "".join(ch for ch in str(form.get("phone_last4") or "").strip() if ch.isdigit())[:4]
-
-    if len(phone_last4) != 4:
-        return {
-            "ok": False,
-            "message": "4자리를 입력해주세요."
-        }
-
-    matched_actors = await find_today_actor_by_phone_last4(phone_last4)
-
-    if not matched_actors:
-        return {
-            "ok": False,
-            "message": "오늘 출석 대상자 중 일치하는 배우가 없습니다."
-        }
-
-    if len(matched_actors) > 1:
-        names = ", ".join([x["name"] for x in matched_actors[:3]])
-        return {
-            "ok": False,
-            "message": f"번호가 중복됩니다. 관리자 확인 필요 ({names})"
-        }
-
-    actor = matched_actors[0]
-    today = datetime.now().strftime("%Y-%m-%d")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT id, status
-            FROM attendance_logs
-            WHERE lesson_id = ?
-              AND actor_id = ?
-              AND attendance_date = ?
-        """, (actor["lesson_id"], actor["actor_id"], today))
-        existing = await cur.fetchone()
-
-        if existing and existing["status"] == "출석":
-            return {
-                "ok": True,
-                "message": f"{actor['name']} 이미 출석 처리되었습니다.",
-                "actor_name": actor["name"],
-                "status": "already"
-            }
-
-        await db.execute("""
-            INSERT INTO attendance_logs (
-                lesson_id, actor_id, attendance_date, status,
-                phone_input, feedback, checked_by_user_id,
-                created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(lesson_id, actor_id, attendance_date)
-            DO UPDATE SET
-                status = excluded.status,
-                phone_input = excluded.phone_input,
-                checked_by_user_id = excluded.checked_by_user_id,
-                updated_at = excluded.updated_at
-        """, (
-            actor["lesson_id"],
-            actor["actor_id"],
-            today,
-            "출석",
-            phone_last4,
-            "",
-            current_user["id"],
-            now,
-            now,
-        ))
-        await db.commit()
-
-    return {
-        "ok": True,
-        "message": f"{actor['name']} 출석 완료",
-        "actor_name": actor["name"],
-        "status": "checked"
-    }
-
-@app.get("/attendance/kiosk/exit")
-async def attendance_kiosk_exit(request: Request):
-    await require_admin(request)
-    request.session["kiosk_mode"] = False
-    return RedirectResponse(url="/attendance", status_code=303)
 
 @app.get("/download/merged-compcards/pdf")
 async def download_merged_compcards_pdf(
@@ -843,15 +308,6 @@ async def download_selected_compcards_pdf(actor_ids: list[int] = Form(...)):
 # -------------------------
 # Phase 3 전환용: 아직 main.py에 남은 라우트가 쓰는 다른 기능의 service
 # -------------------------
-
-async def get_teacher_management_rows():
-    async with open_db() as db:
-        return await teachers_service.get_teacher_management_rows(db)
-
-
-async def get_teacher_lessons(teacher_user_id: int):
-    async with open_db() as db:
-        return await teachers_service.get_teacher_lessons(db, teacher_user_id)
 
 
 async def get_filtered_actors(q="", m="", ai_query="", gender="", height_group="", birth_group="", sort="", status_filter=""):
