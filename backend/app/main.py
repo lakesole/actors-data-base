@@ -39,6 +39,7 @@ from app.core.config import (
 )
 from app.core.database import open_db
 from app.core.errors import register_error_handlers
+from app.features.users.router import router as users_router
 from app.features.teachers.router import router as teachers_router
 from app.features.auth.router import router as auth_router
 from app.core.files import (
@@ -51,10 +52,10 @@ from app.core.files import (
     url_to_fs_path,
 )
 from app.core.schema import init_db, migrate_legacy_log_tables
-from app.core.security import hash_password
 from app.core.templating import templates
 from app.core.validators import clean_birth_year, clean_date, validate_yyyy_mm_dd
 from app.features.teachers import service as teachers_service
+from app.features.users import service as users_service
 
 
 @asynccontextmanager
@@ -63,13 +64,15 @@ async def lifespan(app: FastAPI):
     await init_db()
     await migrate_legacy_log_tables()
     await normalize_actor_data()
-    await ensure_default_admin()
+    async with open_db() as db:
+        await users_service.ensure_default_admin(db)
     yield
 
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 register_error_handlers(app)
+app.include_router(users_router)
 app.include_router(teachers_router)
 app.include_router(auth_router)
 
@@ -270,59 +273,9 @@ async def normalize_actor_data():
         await db.commit()
 
 
-async def get_user_by_id(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT id, username, display_name, role, is_active, created_at
-            FROM users
-            WHERE id = ?
-        """, (user_id,))
-        row = await cur.fetchone()
-    return dict(row) if row else None
-
-
-async def get_admin_users_page_context(current_user, error: str = "", success: str = ""):
-    users = await get_all_users()
-    teacher_rows = await get_teacher_management_rows()
-    all_actors = await get_all_actors_simple()
-    return {
-        "current_user": current_user,
-        "users": users,
-        "teacher_rows": teacher_rows,
-        "all_actors": all_actors,
-        "error": error,
-        "success": success,
-    }
-
-
 # -------------------------
 # DB 초기화
 # -------------------------
-
-async def ensure_default_admin():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
-        row = await cur.fetchone()
-
-        if row:
-            return
-
-        await db.execute("""
-            INSERT INTO users (username, password_hash, display_name, role, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            "admin",
-            hash_password("1234"),
-            "최고관리자",
-            "admin",
-            1,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ))
-        await db.commit()
-        print("기본 관리자 계정 생성 완료: admin / 1234")
 
 
 @app.get("/where", response_class=PlainTextResponse)
@@ -333,37 +286,6 @@ def where():
 # -------------------------
 # 관리자 계정 / 선생님 관리
 # -------------------------
-
-async def get_all_users():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT id, username, display_name, role, is_active, created_at
-            FROM users
-            ORDER BY
-                CASE role
-                    WHEN 'admin' THEN 0
-                    WHEN 'staff' THEN 1
-                    WHEN 'teacher' THEN 2
-                    ELSE 9
-                END,
-                created_at DESC,
-                id DESC
-        """)
-        rows = await cur.fetchall()
-    return [dict(r) for r in rows]
-
-
-async def get_all_actors_simple():
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT id, name, teacher_user_id
-            FROM actors
-            ORDER BY name ASC, id DESC
-        """)
-        rows = await cur.fetchall()
-    return [dict(r) for r in rows]
 
 
 async def get_all_lessons_for_attendance():
@@ -524,340 +446,6 @@ async def find_today_actor_by_phone_last4(phone_last4: str):
             matched.append(row)
 
     return matched
-
-@app.get("/admin/users", response_class=HTMLResponse)
-async def admin_users_page(request: Request):
-    current_user = await require_admin(request)
-    users = await get_all_users()
-    teacher_rows = await get_teacher_management_rows()
-    all_actors = await get_all_actors_simple()
-
-    return templates.TemplateResponse(
-        "admin_users.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "users": users,
-            "teacher_rows": teacher_rows,
-            "all_actors": all_actors,
-            "error": "",
-            "success": request.query_params.get("success", ""),
-        }
-    )
-
-
-@app.post("/admin/users/new", response_class=HTMLResponse)
-async def admin_users_create(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    password_confirm: str = Form(...),
-    display_name: str = Form(...),
-    role: str = Form(...),
-):
-    current_user = await require_admin(request)
-
-    username = (username or "").strip()
-    password = (password or "").strip()
-    password_confirm = (password_confirm or "").strip()
-    display_name = (display_name or "").strip()
-    role = (role or "").strip()
-
-    if not username or not display_name or not password:
-        users = await get_all_users()
-        teacher_rows = await get_teacher_management_rows()
-        all_actors = await get_all_actors_simple()
-        return templates.TemplateResponse(
-            "admin_users.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "users": users,
-                "teacher_rows": teacher_rows,
-                "all_actors": all_actors,
-                "error": "아이디, 비밀번호, 이름은 필수입니다.",
-                "success": "",
-            }
-        )
-
-    if len(username) < 4:
-        users = await get_all_users()
-        teacher_rows = await get_teacher_management_rows()
-        all_actors = await get_all_actors_simple()
-        return templates.TemplateResponse(
-            "admin_users.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "users": users,
-                "teacher_rows": teacher_rows,
-                "all_actors": all_actors,
-                "error": "아이디는 4자 이상으로 입력해주세요.",
-                "success": "",
-            }
-        )
-
-    if len(password) < 4:
-        users = await get_all_users()
-        teacher_rows = await get_teacher_management_rows()
-        all_actors = await get_all_actors_simple()
-        return templates.TemplateResponse(
-            "admin_users.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "users": users,
-                "teacher_rows": teacher_rows,
-                "all_actors": all_actors,
-                "error": "비밀번호는 4자 이상으로 입력해주세요.",
-                "success": "",
-            }
-        )
-
-    if password != password_confirm:
-        users = await get_all_users()
-        teacher_rows = await get_teacher_management_rows()
-        all_actors = await get_all_actors_simple()
-        return templates.TemplateResponse(
-            "admin_users.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "users": users,
-                "teacher_rows": teacher_rows,
-                "all_actors": all_actors,
-                "error": "비밀번호 확인이 일치하지 않습니다.",
-                "success": "",
-            }
-        )
-
-    if role not in ["admin", "staff", "teacher"]:
-        users = await get_all_users()
-        teacher_rows = await get_teacher_management_rows()
-        all_actors = await get_all_actors_simple()
-        return templates.TemplateResponse(
-            "admin_users.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "users": users,
-                "teacher_rows": teacher_rows,
-                "all_actors": all_actors,
-                "error": "권한 값이 올바르지 않습니다.",
-                "success": "",
-            }
-        )
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("SELECT id FROM users WHERE username = ?", (username,))
-        exists = await cur.fetchone()
-
-        if exists:
-            users = await get_all_users()
-            teacher_rows = await get_teacher_management_rows()
-            all_actors = await get_all_actors_simple()
-            return templates.TemplateResponse(
-                "admin_users.html",
-                {
-                    "request": request,
-                    "current_user": current_user,
-                    "users": users,
-                    "teacher_rows": teacher_rows,
-                    "all_actors": all_actors,
-                    "error": "이미 사용 중인 아이디입니다.",
-                    "success": "",
-                }
-            )
-
-        cur = await db.execute("""
-            INSERT INTO users (username, password_hash, display_name, role, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            username,
-            hash_password(password),
-            display_name,
-            role,
-            1,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ))
-        await db.commit()
-
-        new_user_id = cur.lastrowid
-
-        if role == "teacher":
-            await db.execute("""
-                INSERT OR IGNORE INTO teacher_profiles (user_id, lesson_subject, lesson_days, updated_at)
-                VALUES (?, '', '', ?)
-            """, (
-                new_user_id,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ))
-            await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=created", status_code=303)
-
-
-@app.post("/admin/users/{user_id}/toggle-active")
-async def admin_user_toggle_active(request: Request, user_id: int):
-    current_user = await require_admin(request)
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        cur = await db.execute("""
-            SELECT id, username, role, is_active
-            FROM users
-            WHERE id = ?
-        """, (user_id,))
-        target = await cur.fetchone()
-
-        if not target:
-            raise HTTPException(status_code=404, detail="계정을 찾을 수 없습니다.")
-
-        target = dict(target)
-
-        if target["id"] == current_user["id"]:
-            raise HTTPException(status_code=400, detail="현재 로그인한 본인 계정은 비활성화할 수 없습니다.")
-
-        new_active = 0 if int(target["is_active"]) == 1 else 1
-
-        await db.execute("""
-            UPDATE users
-            SET is_active = ?
-            WHERE id = ?
-        """, (new_active, user_id))
-        await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=toggled", status_code=303)
-
-@app.post("/admin/users/{user_id}/change-role", response_class=HTMLResponse)
-async def admin_user_change_role(
-    request: Request,
-    user_id: int,
-    role: str = Form(...),
-):
-    current_user = await require_admin(request)
-
-    role = (role or "").strip()
-
-    if role not in ["admin", "staff", "teacher"]:
-        ctx = await get_admin_users_page_context(current_user, error="권한 값이 올바르지 않습니다.")
-        ctx["request"] = request
-        return templates.TemplateResponse("admin_users.html", ctx)
-
-    target_user = await get_user_by_id(user_id)
-    if not target_user:
-        raise HTTPException(status_code=404, detail="계정을 찾을 수 없습니다.")
-
-    # 본인 권한은 여기서 변경 못 하게 막기
-    if target_user["id"] == current_user["id"]:
-        ctx = await get_admin_users_page_context(current_user, error="현재 로그인한 본인 계정의 권한은 변경할 수 없습니다.")
-        ctx["request"] = request
-        return templates.TemplateResponse("admin_users.html", ctx)
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        # 마지막 admin 보호
-        if target_user["role"] == "admin" and role != "admin":
-            cur = await db.execute("""
-                SELECT COUNT(*) FROM users
-                WHERE role = 'admin'
-            """)
-            admin_count = (await cur.fetchone())[0]
-            if admin_count <= 1:
-                ctx = await get_admin_users_page_context(current_user, error="마지막 관리자 계정의 권한은 변경할 수 없습니다.")
-                ctx["request"] = request
-                return templates.TemplateResponse("admin_users.html", ctx)
-
-        await db.execute("""
-            UPDATE users
-            SET role = ?
-            WHERE id = ?
-        """, (role, user_id))
-
-        # teacher로 바뀌면 teacher_profiles 기본 생성
-        if role == "teacher":
-            await db.execute("""
-                INSERT OR IGNORE INTO teacher_profiles (user_id, lesson_subject, lesson_days, updated_at)
-                VALUES (?, '', '', ?)
-            """, (
-                user_id,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ))
-
-        await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=role_changed", status_code=303)
-
-@app.post("/admin/users/{user_id}/reset-password", response_class=HTMLResponse)
-async def admin_user_reset_password(
-    request: Request,
-    user_id: int,
-    new_password: str = Form(...),
-    new_password_confirm: str = Form(...),
-):
-    current_user = await require_admin(request)
-
-    new_password = (new_password or "").strip()
-    new_password_confirm = (new_password_confirm or "").strip()
-
-    if len(new_password) < 4:
-        ctx = await get_admin_users_page_context(current_user, error="비밀번호는 4자 이상으로 입력해주세요.")
-        ctx["request"] = request
-        return templates.TemplateResponse("admin_users.html", ctx)
-
-    if new_password != new_password_confirm:
-        ctx = await get_admin_users_page_context(current_user, error="비밀번호 확인이 일치하지 않습니다.")
-        ctx["request"] = request
-        return templates.TemplateResponse("admin_users.html", ctx)
-
-    target_user = await get_user_by_id(user_id)
-    if not target_user:
-        raise HTTPException(status_code=404, detail="계정을 찾을 수 없습니다.")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            UPDATE users
-            SET password_hash = ?
-            WHERE id = ?
-        """, (hash_password(new_password), user_id))
-        await db.commit()
-
-    return RedirectResponse(
-        url=f"/admin/users?success=pw_reset_{quote(target_user['username'])}",
-        status_code=303
-    )
-
-@app.post("/admin/users/{user_id}/delete")
-async def admin_user_delete(request: Request, user_id: int):
-    current_user = await require_admin(request)
-
-    target_user = await get_user_by_id(user_id)
-    if not target_user:
-        raise HTTPException(status_code=404, detail="계정을 찾을 수 없습니다.")
-
-    if target_user["id"] == current_user["id"]:
-        raise HTTPException(status_code=400, detail="현재 로그인한 본인 계정은 삭제할 수 없습니다.")
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        if target_user["role"] == "admin":
-            cur = await db.execute("""
-                SELECT COUNT(*) FROM users
-                WHERE role = 'admin'
-            """)
-            admin_count = (await cur.fetchone())[0]
-            if admin_count <= 1:
-                raise HTTPException(status_code=400, detail="마지막 관리자 계정은 삭제할 수 없습니다.")
-
-        await db.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        await db.commit()
-
-    return RedirectResponse(url="/admin/users?success=deleted", status_code=303)
 
 
 # -------------------------

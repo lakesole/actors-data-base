@@ -231,7 +231,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [ ] Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
   - [x] auth
   - [x] teachers
-  - [ ] users
+  - [x] users
   - [ ] actors
   - [ ] actor_records
   - [ ] attendance
