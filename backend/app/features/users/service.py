@@ -60,17 +60,30 @@ async def create_user(
         )
         if role == "teacher":
             await teachers_service.ensure_profile(db, new_user_id)
+    return new_user_id
 
 
-async def toggle_active(db: aiosqlite.Connection, current_user: dict, user_id: int):
+async def list_users(db: aiosqlite.Connection) -> list[dict]:
+    return await repository.list_users(db)
+
+
+async def get_user(db: aiosqlite.Connection, user_id: int) -> dict:
+    return await _get_user_or_404(db, user_id)
+
+
+async def set_active(db: aiosqlite.Connection, current_user: dict, user_id: int, is_active: bool):
     target = await _get_user_or_404(db, user_id)
 
     if target["id"] == current_user["id"]:
         raise BadRequest("현재 로그인한 본인 계정은 비활성화할 수 없습니다.")
 
-    new_active = 0 if int(target["is_active"]) == 1 else 1
     async with transaction(db):
-        await repository.set_active(db, user_id, new_active)
+        await repository.set_active(db, user_id, 1 if is_active else 0)
+
+
+async def toggle_active(db: aiosqlite.Connection, current_user: dict, user_id: int):
+    target = await _get_user_or_404(db, user_id)
+    await set_active(db, current_user, user_id, not int(target["is_active"]) == 1)
 
 
 async def change_role(db: aiosqlite.Connection, current_user: dict, user_id: int, role: str):

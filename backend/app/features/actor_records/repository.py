@@ -21,11 +21,12 @@ async def get(db: aiosqlite.Connection, table: str, actor_id: int, item_id: int)
     return dict(row) if row else None
 
 
-async def insert(db: aiosqlite.Connection, table: str, date_col: str, actor_id: int, record_date: str, content: str, created_at: str):
-    await db.execute(f"""
+async def insert(db: aiosqlite.Connection, table: str, date_col: str, actor_id: int, record_date: str, content: str, created_at: str) -> int:
+    cur = await db.execute(f"""
         INSERT INTO {table} (actor_id, {date_col}, content, created_at)
         VALUES (?, ?, ?, ?)
     """, (actor_id, record_date, content, created_at))
+    return cur.lastrowid
 
 
 async def update(db: aiosqlite.Connection, table: str, date_col: str, actor_id: int, item_id: int, record_date: str, content: str):

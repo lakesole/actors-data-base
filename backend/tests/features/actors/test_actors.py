@@ -107,7 +107,7 @@ def _jpeg_bytes():
     return buf.getvalue()
 
 
-def test_create_actor_with_photo_and_video(seed, db, static_dir):
+def test_create_actor_with_photo_and_video(seed, db, upload_dir, client):
     r = seed.staff.post(
         "/actors/new",
         data={"name": "사진배우"},
@@ -120,10 +120,12 @@ def test_create_actor_with_photo_and_video(seed, db, static_dir):
     assert r.status_code == 303
     actor_id = int(r.headers["location"].rsplit("/", 1)[1])
     row = db("SELECT photo_path, photo_thumb_path FROM actors WHERE id=?", (actor_id,))[0]
-    assert row["photo_path"].startswith("/static/uploads/photo_") and row["photo_path"].endswith(".jpg")
-    assert row["photo_thumb_path"].startswith("/static/uploads/photo_thumb_")
-    with Image.open(static_dir / row["photo_path"].removeprefix("/static/")) as img:
+    # Phase 4부터 업로드 파일은 storage/uploads에 저장되고 /media/uploads로 서빙된다
+    assert row["photo_path"].startswith("/media/uploads/photo_") and row["photo_path"].endswith(".jpg")
+    assert row["photo_thumb_path"].startswith("/media/uploads/photo_thumb_")
+    with Image.open(upload_dir / row["photo_path"].removeprefix("/media/uploads/")) as img:
         assert max(img.size) == 1000
+    assert client.get(row["photo_path"]).status_code == 200
 
     # 현재는 여러 개를 올려도 마지막 1개만 저장된다 (docs/found-issues.md #13)
     videos = db("SELECT original_name FROM acting_videos WHERE actor_id=? ORDER BY id", (actor_id,))
@@ -204,7 +206,7 @@ def test_delete_actor_by_unassigned_teacher_denied(seed, db):
 
 def test_delete_video(seed, db):
     db("INSERT INTO acting_videos (actor_id, video_path, original_name, created_at) VALUES (?, ?, ?, ?)",
-       (seed.assigned, "/static/uploads/none.mp4", "none.mp4", "2024-01-01T00:00:00"))
+       (seed.assigned, "/media/uploads/none.mp4", "none.mp4", "2024-01-01T00:00:00"))
     video_id = db("SELECT id FROM acting_videos")[0]["id"]
 
     assert_denied(seed.teacher.post(f"/actors/{seed.assigned}/videos/{video_id}/delete"))

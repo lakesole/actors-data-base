@@ -102,6 +102,15 @@ async def ensure_can_edit(db: aiosqlite.Connection, user: dict, actor_id: int):
     raise Forbidden("수정 권한이 없습니다.")
 
 
+async def ensure_can_view_tab(db: aiosqlite.Connection, user: dict | None, actor_id: int, tab: str):
+    """상세 화면 탭 내용을 볼 수 있는지. teacher는 담당 배우의 수업일지(classlog) 탭만 볼 수 있다."""
+    if user and user["role"] == "teacher":
+        if not await teacher_can_access_actor(db, user, actor_id):
+            raise Forbidden("담당 배우만 볼 수 있습니다.")
+        if tab != "classlog":
+            raise Forbidden("담당 배우의 수업일지만 볼 수 있습니다.")
+
+
 def ensure_can_delete_record(user: dict):
     """배우 기록과 연기영상 삭제는 admin/staff만 가능하다."""
     if user["role"] not in ["admin", "staff"]:
@@ -227,6 +236,11 @@ async def get_detail_data(db: aiosqlite.Connection, user: dict | None, actor_id:
         data["acting_videos"] = await repository.list_videos(db, actor_id)
 
     return data
+
+
+async def list_videos(db: aiosqlite.Connection, user: dict | None, actor_id: int) -> list[dict]:
+    await ensure_can_view_tab(db, user, actor_id, "video")
+    return await repository.list_videos(db, actor_id)
 
 
 async def get_actor_or_404(db: aiosqlite.Connection, actor_id: int) -> dict:

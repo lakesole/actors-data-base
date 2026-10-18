@@ -93,16 +93,22 @@ async def get_page_data(db: aiosqlite.Connection, user: dict, lesson_id: str, at
     }
 
 
-async def save_attendance(db: aiosqlite.Connection, user: dict, form: dict) -> tuple[int, str]:
+async def save_attendance(
+    db: aiosqlite.Connection,
+    user: dict,
+    lesson_id_raw,
+    attendance_date: str,
+    entries: dict[int, dict],
+) -> tuple[int, str]:
     """
-    출석부 폼을 저장한다. form 키: lesson_id, attendance_date,
-    배우마다 phone_input_{id}, status_{id}, feedback_{id}.
+    출석부를 저장한다. entries는 {배우 id: {"phone_input", "status", "feedback"}}.
+    수업에 배정된 배우 중 entries에 없는 배우는 빈 값으로 저장된다.
     - 상태를 고르지 않았는데 입력한 번호가 맞으면 '출석', 아니면 '미체크'
     - 피드백이 있으면 수업일지에도 "[수업명] 피드백"으로 기록한다 (같은 날 같은 내용은 한 번만)
     반환: (lesson_id, attendance_date)
     """
-    lesson_id_raw = str(form.get("lesson_id") or "").strip()
-    attendance_date = str(form.get("attendance_date") or "").strip()
+    lesson_id_raw = str(lesson_id_raw or "").strip()
+    attendance_date = str(attendance_date or "").strip()
 
     if not lesson_id_raw:
         raise BadRequest("수업을 선택해주세요.")
@@ -119,10 +125,11 @@ async def save_attendance(db: aiosqlite.Connection, user: dict, form: dict) -> t
     async with transaction(db):
         for actor in await repository.list_lesson_actor_phones(db, lesson_id):
             actor_id = actor["id"]
+            entry = entries.get(actor_id) or {}
             saved_last4 = digits_only(actor["phone_last4"], 4)
-            phone_input = digits_only(form.get(f"phone_input_{actor_id}"), 4)
-            status = str(form.get(f"status_{actor_id}") or "").strip()
-            feedback = str(form.get(f"feedback_{actor_id}") or "").strip()
+            phone_input = digits_only(entry.get("phone_input"), 4)
+            status = str(entry.get("status") or "").strip()
+            feedback = str(entry.get("feedback") or "").strip()
 
             if not status:
                 status = "출석" if saved_last4 and phone_input and saved_last4 == phone_input else "미체크"

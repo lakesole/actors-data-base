@@ -57,15 +57,15 @@ async def save_profile(db: aiosqlite.Connection, teacher_user_id: int, lesson_su
         )
 
 
-async def add_lesson(db: aiosqlite.Connection, teacher_user_id: int, lesson_name: str, lesson_days: str):
-    """수업명이 비어 있으면 아무것도 하지 않는다."""
+async def add_lesson(db: aiosqlite.Connection, teacher_user_id: int, lesson_name: str, lesson_days: str) -> int | None:
+    """새 수업 id를 반환한다. 수업명이 비어 있으면 아무것도 하지 않고 None."""
     lesson_name = (lesson_name or "").strip()
     lesson_days = (lesson_days or "").strip()
     if not lesson_name:
-        return
+        return None
 
     async with transaction(db):
-        await repository.insert_lesson(db, teacher_user_id, lesson_name, lesson_days, now_str())
+        return await repository.insert_lesson(db, teacher_user_id, lesson_name, lesson_days, now_str())
 
 
 async def delete_lesson(db: aiosqlite.Connection, lesson_id: int):

@@ -1,3 +1,4 @@
+import re
 from urllib.parse import quote
 
 import aiosqlite
@@ -10,6 +11,19 @@ from app.core.templating import templates
 from app.features.attendance import service
 
 router = APIRouter(prefix="/attendance")
+
+ENTRY_FIELD = re.compile(r"^(phone_input|status|feedback)_(\d+)$")
+
+
+def _entries_from_form(form: dict) -> dict[int, dict]:
+    """폼의 phone_input_{id}, status_{id}, feedback_{id} 값을 배우별로 묶는다."""
+    entries: dict[int, dict] = {}
+    for key, value in form.items():
+        match = ENTRY_FIELD.match(key)
+        if match:
+            field, actor_id = match.group(1), int(match.group(2))
+            entries.setdefault(actor_id, {})[field] = value
+    return entries
 
 
 @router.get("", response_class=HTMLResponse)
@@ -34,8 +48,10 @@ async def attendance_save(
     user: dict = Depends(require_login),
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    form = await request.form()
-    lesson_id, attendance_date = await service.save_attendance(db, user, dict(form))
+    form = dict(await request.form())
+    lesson_id, attendance_date = await service.save_attendance(
+        db, user, form.get("lesson_id"), form.get("attendance_date"), _entries_from_form(form)
+    )
     return RedirectResponse(
         url=f"/attendance?lesson_id={lesson_id}&attendance_date={quote(attendance_date)}",
         status_code=303,

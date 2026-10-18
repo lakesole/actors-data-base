@@ -9,33 +9,10 @@ from app.core.database import get_db
 from app.core.templating import templates
 from app.core.urls import actor_url
 from app.features.actors import service
+from app.features.actors.forms import actor_form
 from app.features.actors.service import ActorForm
 
 router = APIRouter()
-
-
-def actor_form(
-    name: str = Form(...),
-    manager_name: str = Form(""),
-    gender: str = Form(""),
-    birth_year: str = Form(""),
-    height_cm: str = Form(""),
-    weight_kg: str = Form(""),
-    school: str = Form(""),
-    hobby: str = Form(""),
-    specialty: str = Form(""),
-    contract_date: str = Form(""),
-    contract_end_date: str = Form(""),
-    bio: str = Form(""),
-    teacher_user_id: str = Form(""),
-    phone_last4: str = Form(""),
-) -> ActorForm:
-    return ActorForm(
-        name=name, manager_name=manager_name, gender=gender, birth_year=birth_year,
-        height_cm=height_cm, weight_kg=weight_kg, school=school, hobby=hobby,
-        specialty=specialty, contract_date=contract_date, contract_end_date=contract_end_date,
-        bio=bio, teacher_user_id=teacher_user_id, phone_last4=phone_last4,
-    )
 
 
 # ---------- 목록 ----------

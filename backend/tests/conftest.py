@@ -22,6 +22,7 @@ PASSWORD = "pass1234"
 
 def load_app(workdir: Path):
     # 설정은 import 시점에 환경변수에서 읽으므로 import 전에 지정한다.
+    os.environ["STORAGE_DIR"] = str(workdir / "storage")
     os.environ["DB_PATH"] = str(workdir / "actors.db")
     os.environ["STATIC_DIR"] = str(workdir / "static")
     os.environ["SECRET_KEY"] = "test-secret"
@@ -51,6 +52,11 @@ def app(workdir):
 @pytest.fixture
 def static_dir(workdir):
     return workdir / "static"
+
+
+@pytest.fixture
+def upload_dir(workdir):
+    return workdir / "storage" / "uploads"
 
 
 @pytest.fixture

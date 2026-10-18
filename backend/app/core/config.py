@@ -10,12 +10,16 @@ PROJECT_ROOT = APP_DIR.parent.parent                   # 저장소 루트
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-DB_PATH = os.getenv("DB_PATH") or str(PROJECT_ROOT / "storage" / "actors.db")
+# 런타임 데이터(DB, 업로드 파일, 병합 PDF). git에 올리지 않고 도커 볼륨으로 연결한다.
+STORAGE_DIR = Path(os.getenv("STORAGE_DIR") or PROJECT_ROOT / "storage")
+DB_PATH = os.getenv("DB_PATH") or str(STORAGE_DIR / "actors.db")
+UPLOAD_DIR = STORAGE_DIR / "uploads"     # /media/uploads/... 로 서빙
+MERGED_DIR = STORAGE_DIR / "merged"      # 다운로드 응답으로만 내려보내고 서빙하지 않는다
 
 TEMPLATES_DIR = APP_DIR / "templates"
 STATIC_DIR = Path(os.getenv("STATIC_DIR") or APP_DIR / "static")
-UPLOAD_DIR = STATIC_DIR / "uploads"
-MERGED_DIR = STATIC_DIR / "merged"
+# 마이그레이션 전 업로드 파일 위치 (/static/uploads/...). scripts/migrate_uploads_to_media.py로 옮긴다.
+LEGACY_UPLOAD_DIR = STATIC_DIR / "uploads"
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:

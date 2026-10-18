@@ -90,7 +90,9 @@ Actor_db2/
 │           ├── users/               # 관리자: 계정 생성/권한 변경/비활성화/삭제
 │           ├── teachers/            # 강사 프로필, 수업(lesson), 수업-배우 배정
 │           ├── actors/              # 배우 목록/상세/생성/수정/삭제, 영상
-│           │   ├── router.py
+│           │   ├── api.py           # JSON API (/api/actors/...)
+│           │   ├── router.py        # 화면 (Jinja). Phase 6에서 삭제
+│           │   ├── forms.py         # multipart 폼 → ActorForm (api, router 공용)
 │           │   ├── service.py
 │           │   ├── repository.py
 │           │   ├── schemas.py
@@ -196,18 +198,27 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 | 현재 | 변경 후 |
 |---|---|
 | `POST /login`, `GET /logout` | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` |
-| `GET /` (목록, 검색, 정렬) | `GET /api/actors?q=&ai=&sort=` |
-| `GET /actors/{id}` | `GET /api/actors/{id}` |
-| `POST /actors/new` | `POST /api/actors` (multipart: 사진, 컴카드 포함) |
-| `POST /actors/{id}/edit` | `PATCH /api/actors/{id}` |
+| `POST /account/password` | `POST /api/auth/password` |
+| `GET /` (목록, 검색, 정렬) | `GET /api/actors?q=&m=&ai_query=&gender=&height_group=&birth_group=&sort=&status_filter=&lesson_id=&page=&per_page=` |
+| (수업 배정용 배우 이름 목록) | `GET /api/actors/simple` |
+| `GET /actors/{id}` | `GET /api/actors/{id}`, `GET /api/actors/{id}/videos` |
+| `POST /actors/new` | `POST /api/actors` (multipart: 사진, 컴카드, 연기영상 포함) |
+| `POST /actors/{id}/edit` | `PATCH /api/actors/{id}` (multipart, 텍스트 필드는 모두 보낸다) |
 | `POST /actors/{id}/delete` | `DELETE /api/actors/{id}` |
-| `POST /actors/{id}/classlogs/new` | `POST /api/actors/{id}/class-logs` |
+| `POST /actors/{id}/videos/{vid}/delete` | `DELETE /api/actors/{id}/videos/{vid}` |
+| `POST /actors/{id}/classlogs/new` | `POST /api/actors/{id}/class-logs` (`{"date", "content"}`) |
+| `GET /actors/{id}/classlogs/{log_id}/edit` | `GET /api/actors/{id}/class-logs/{log_id}` |
 | `POST /actors/{id}/classlogs/{log_id}/edit` | `PATCH /api/actors/{id}/class-logs/{log_id}` |
 | `POST /actors/{id}/classlogs/{log_id}/delete` | `DELETE /api/actors/{id}/class-logs/{log_id}` |
-| 오디션, 캐스팅 관리, 캐스팅 미팅, 첫 미팅 | 위와 같은 패턴 (`auditions`, `casting-management`, `casting-meetings`, `first-meetings`) |
-| `POST /admin/users/{id}/toggle-active` 등 | `PATCH /api/users/{id}` (is_active, role), `POST /api/users/{id}/reset-password` |
-| `POST /attendance/kiosk/check` | `POST /api/attendance/kiosk/check` (이미 JSON이므로 응답 형식 유지) |
+| 오디션, 캐스팅 관리, 캐스팅 미팅, 첫 미팅 | 위와 같은 패턴 (`auditions`, `casting-management`, `casting-meetings`, `first-meetings`). 목록은 `GET /api/actors/{id}/<종류>` |
+| `GET /admin/users`, `POST /admin/users/new` | `GET /api/users`, `POST /api/users` |
+| `toggle-active`, `change-role` | `PATCH /api/users/{id}` (`{"is_active"?, "role"?}`) |
+| `reset-password`, `delete` | `POST /api/users/{id}/reset-password`, `DELETE /api/users/{id}` |
+| `/admin/teachers/...` | `GET /api/teachers`, `GET /api/teachers/choices`, `PUT /api/teachers/{id}/profile`, `POST /api/teachers/{id}/lessons`, `DELETE /api/teachers/lessons/{lid}`, `PUT /api/teachers/lessons/{lid}/actors` |
+| `GET /attendance`, `POST /attendance/save` | `GET /api/attendance?lesson_id=&attendance_date=`, `PUT /api/attendance` (`{"lesson_id", "attendance_date", "entries": [...]}`) |
+| `GET /attendance/kiosk`, `POST .../check`, `GET .../exit` | `GET /api/attendance/kiosk` (키오스크 모드 켜짐), `POST /api/attendance/kiosk/check`, `POST /api/attendance/kiosk/exit` |
 | `GET /download/merged-compcards/pdf` | `GET /api/compcards/merged.pdf` |
+| `POST /download/selected-compcards/pdf` | `POST /api/compcards/selected.pdf` (`{"actor_ids": [...]}`) |
 | `GET /new`, `/edit` 같은 폼 화면 | 삭제 (프론트엔드 라우트가 담당) |
 
 - 응답 상태 코드: 조회 200, 생성 201, 삭제 204, 권한 없음 403, 로그인 필요 401, 없음 404, 검증 실패 422.
@@ -237,7 +248,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
   - [x] actor_records
   - [x] attendance
   - [x] compcards
-- [ ] Phase 4. JSON API 추가
+- [x] Phase 4. JSON API 추가
 - [ ] Phase 5. 프론트엔드 구축
 - [ ] Phase 6. Jinja 제거와 배포
 
@@ -288,14 +299,14 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [x] **완료 조건**: main.py가 앱 생성과 라우터 등록만 남아 100줄 이하이고, 테스트가 통과하며, 화면 동작이 기존과 같다.
 
 ### Phase 4. JSON API 추가
-- [ ] 각 기능에 `schemas.py`(Pydantic)를 만든다.
-- [ ] 5장 표에 따라 `/api/...` 라우트를 추가한다. **Phase 3에서 만든 service를 그대로 재사용한다.** service에 화면 전용 로직이 섞여 있으면 이때 분리한다.
-- [ ] `core/errors.py`에 도메인 예외 → JSON 핸들러를 추가한다. 401/403을 구분한다.
-- [ ] 업로드 파일을 `storage/uploads`로 옮기고 `/media`로 서빙한다. DB에 저장된 `/static/uploads/...` URL을 `/media/uploads/...`로 바꾸는 **일회성 마이그레이션 스크립트**를 `scripts/`에 작성한다. 실행 전에 백업을 확인하고, 실행은 사용자에게 확인받는다.
-- [ ] 기존 Jinja 라우트는 아직 지우지 않는다 (두 방식이 공존).
-- [ ] 테스트를 API 기준으로 추가한다. Phase 0의 시나리오를 API로 다시 검증한다.
+- [x] 각 기능에 `schemas.py`(Pydantic)를 만든다. JSON 라우트는 화면용 `router.py`와 섞지 않고 `api.py`에 둔다 (Phase 6에서 `router.py`만 지우면 된다).
+- [x] 5장 표에 따라 `/api/...` 라우트를 추가한다. **Phase 3에서 만든 service를 그대로 재사용한다.** service에 화면 전용 로직이 섞여 있으면 이때 분리한다.
+- [x] `core/errors.py`에 도메인 예외 → JSON 핸들러를 추가한다. 401/403을 구분한다.
+- [x] 업로드 파일을 `storage/uploads`로 옮기고 `/media`로 서빙한다. DB에 저장된 `/static/uploads/...` URL을 `/media/uploads/...`로 바꾸는 **일회성 마이그레이션 스크립트**를 `scripts/`에 작성한다. 실행 전에 백업을 확인하고, 실행은 사용자에게 확인받는다. → `scripts/migrate_uploads_to_media.py` (기본은 미리보기, `--apply`로 실행하며 DB를 자동 백업). **운영 DB에는 아직 실행하지 않았다.**
+- [x] 기존 Jinja 라우트는 아직 지우지 않는다 (두 방식이 공존).
+- [x] 테스트를 API 기준으로 추가한다. Phase 0의 시나리오를 API로 다시 검증한다.
 
-- [ ] **완료 조건**: `docs/routes-before.md`의 모든 기능에 대응하는 API가 있고, `/docs`(OpenAPI)에서 확인할 수 있다.
+- [x] **완료 조건**: `docs/routes-before.md`의 모든 기능에 대응하는 API가 있고, `/docs`(OpenAPI)에서 확인할 수 있다.
 
 ### Phase 5. 프론트엔드 구축
 - [ ] `frontend/`에 Vite + React + TypeScript 프로젝트를 만든다. dev 프록시를 설정한다.

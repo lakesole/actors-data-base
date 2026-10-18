@@ -16,20 +16,28 @@ from app.core.config import (
     SESSION_HTTPS_ONLY,
     SESSION_MAX_AGE,
     STATIC_DIR,
+    UPLOAD_DIR,
 )
 from app.core.database import open_db
 from app.core.errors import register_error_handlers
 from app.core.files import ensure_dirs
 from app.core.schema import init_db, migrate_legacy_log_tables
+from app.features.actor_records.api import router as actor_records_api
 from app.features.actor_records.router import router as actor_records_router
+from app.features.actors.api import router as actors_api
 from app.features.actors import service as actors_service
 from app.features.actors.router import router as actors_router
+from app.features.attendance.api import router as attendance_api
 from app.features.attendance.kiosk import kiosk_mode_guard
 from app.features.attendance.router import router as attendance_router
+from app.features.auth.api import router as auth_api
 from app.features.auth.router import router as auth_router
+from app.features.compcards.api import router as compcards_api
 from app.features.compcards.router import router as compcards_router
+from app.features.teachers.api import router as teachers_api
 from app.features.teachers.router import router as teachers_router
 from app.features.users import service as users_service
+from app.features.users.api import router as users_api
 from app.features.users.router import router as users_router
 
 
@@ -45,7 +53,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+ensure_dirs()  # StaticFiles는 만들 때 폴더가 있어야 한다
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# 업로드 파일만 공개한다. storage/ 전체를 마운트하면 DB 파일까지 노출된다.
+app.mount("/media/uploads", StaticFiles(directory=UPLOAD_DIR), name="media")
 register_error_handlers(app)
 
 # 미들웨어는 나중에 추가한 것이 바깥쪽에서 먼저 실행된다 (세션 → 키오스크 순서)
@@ -59,6 +70,16 @@ app.add_middleware(
     https_only=SESSION_HTTPS_ONLY,
 )
 
+# JSON API (/api/...)
+app.include_router(auth_api)
+app.include_router(users_api)
+app.include_router(teachers_api)
+app.include_router(actors_api)
+app.include_router(actor_records_api)
+app.include_router(attendance_api)
+app.include_router(compcards_api)
+
+# 화면 (Jinja). Phase 6에서 프론트엔드로 대체하면서 제거한다.
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(teachers_router)

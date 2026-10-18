@@ -9,7 +9,7 @@ import aiosqlite
 from fastapi import Depends, Request
 
 from app.core.database import get_db
-from app.core.errors import LOGIN_REQUIRED, Forbidden
+from app.core.errors import LOGIN_REQUIRED, Forbidden, Unauthorized
 
 
 async def current_user(request: Request, db: aiosqlite.Connection = Depends(get_db)) -> dict | None:
@@ -34,7 +34,7 @@ async def current_user(request: Request, db: aiosqlite.Connection = Depends(get_
 
 async def require_login(user: dict | None = Depends(current_user)) -> dict:
     if not user:
-        raise Forbidden(LOGIN_REQUIRED)
+        raise Unauthorized(LOGIN_REQUIRED)
     return user
 
 

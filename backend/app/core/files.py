@@ -10,6 +10,8 @@ from PIL import Image, ImageOps
 
 from app.core.config import APP_DIR, MERGED_DIR, STATIC_DIR, UPLOAD_DIR
 
+UPLOAD_URL_PREFIX = "/media/uploads/"
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -19,6 +21,9 @@ def ensure_dirs():
 
 
 def url_to_fs_path(url: str) -> str:
+    """공개 URL을 실제 파일 경로로 바꾼다. 마이그레이션 전 URL(/static/uploads/...)도 처리한다."""
+    if url.startswith(UPLOAD_URL_PREFIX):
+        return str(UPLOAD_DIR / url[len(UPLOAD_URL_PREFIX):])
     rel = url.lstrip("/")
     if rel.startswith("static/"):
         return str(STATIC_DIR / rel[len("static/"):])
@@ -26,7 +31,7 @@ def url_to_fs_path(url: str) -> str:
 
 
 def upload_url(filename: str) -> str:
-    return f"/static/uploads/{filename}"
+    return f"{UPLOAD_URL_PREFIX}{filename}"
 
 
 def _to_rgb(img: Image.Image) -> Image.Image:

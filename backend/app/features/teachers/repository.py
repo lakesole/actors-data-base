@@ -92,13 +92,14 @@ async def insert_empty_profile_if_missing(db: aiosqlite.Connection, user_id: int
     """, (user_id, updated_at))
 
 
-async def insert_lesson(db: aiosqlite.Connection, teacher_user_id: int, lesson_name: str, lesson_days: str, created_at: str):
-    await db.execute("""
+async def insert_lesson(db: aiosqlite.Connection, teacher_user_id: int, lesson_name: str, lesson_days: str, created_at: str) -> int:
+    cur = await db.execute("""
         INSERT INTO teacher_lessons (
             teacher_user_id, lesson_name, lesson_days, created_at
         )
         VALUES (?, ?, ?, ?)
     """, (teacher_user_id, lesson_name, lesson_days, created_at))
+    return cur.lastrowid
 
 
 async def get_lesson(db: aiosqlite.Connection, lesson_id: int) -> dict | None:
