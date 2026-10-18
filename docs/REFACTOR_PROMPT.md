@@ -71,6 +71,7 @@ Actor_db2/
 │   ├── requirements.txt
 │   ├── tests/
 │   │   ├── conftest.py              # 임시 DB, 로그인된 클라이언트 fixture
+│   │   ├── test_startup.py          # 기존 데이터가 있는 DB로 시작
 │   │   └── features/<기능명>/test_*.py
 │   └── app/
 │       ├── main.py                  # 앱 생성, 미들웨어, 라우터 등록만
@@ -82,6 +83,7 @@ Actor_db2/
 │       │   ├── auth.py              # get_current_user, require_role 등 Depends
 │       │   ├── errors.py            # 도메인 예외 → JSON 에러 응답 변환
 │       │   ├── files.py             # 업로드 저장, 썸네일, 파일 삭제
+│       │   ├── urls.py              # actor_url 등 화면 URL 헬퍼
 │       │   └── validators.py        # 날짜, 출생연도 정리 등
 │       └── features/
 │           ├── auth/                # 로그인, 로그아웃, 내 정보, 비밀번호 변경
@@ -94,11 +96,10 @@ Actor_db2/
 │           │   ├── schemas.py
 │           │   └── search.py        # AI_KEYWORD_MAP, parse_ai_query, 점수 계산
 │           ├── actor_records/       # 수업일지, 오디션, 캐스팅 관리, 캐스팅 미팅, 첫 미팅
-│           ├── attendance/          # 출석부, 키오스크
+│           ├── attendance/          # 출석부, 키오스크 (kiosk.py: 키오스크 모드 미들웨어)
 │           └── compcards/           # 컴카드 PPT 병합, PDF 변환/다운로드
 │               ├── router.py
 │               ├── service.py
-│               ├── pptx_merge.py
 │               └── pdf_convert.py   # LibreOffice 호출 (중복 구현을 하나로 통합)
 │
 └── frontend/
@@ -158,7 +159,7 @@ router → service → repository → core.database
 - `commit`/`rollback`은 service의 `async with transaction(db):` 블록에서만 일어난다.
 
 **예외**
-- service는 HTTP를 모른다. `NotFound`, `Forbidden`, `ValidationFailed` 같은 도메인 예외를 `core/errors.py`에 정의해서 발생시킨다.
+- service는 HTTP를 모른다. `NotFound`, `Forbidden`, `BadRequest`, `FormError` 같은 도메인 예외를 `core/errors.py`에 정의해서 발생시킨다.
 - `core/errors.py`의 예외 핸들러가 이것을 `{"detail": "...", "code": "..."}` JSON과 404/403/422 상태 코드로 변환한다.
 - 기존 한국어 에러 메시지는 그대로 유지한다.
 
@@ -228,14 +229,14 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [x] Phase 0. 안전장치
 - [x] Phase 1. 저장소 정리
 - [x] Phase 2. 백엔드 뼈대와 core 분리
-- [ ] Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
+- [x] Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
   - [x] auth
   - [x] teachers
   - [x] users
   - [x] actors
   - [x] actor_records
   - [x] attendance
-  - [ ] compcards
+  - [x] compcards
 - [ ] Phase 4. JSON API 추가
 - [ ] Phase 5. 프론트엔드 구축
 - [ ] Phase 6. Jinja 제거와 배포
@@ -270,21 +271,21 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
 - [x] **완료 조건**: main.py에 SQL 스키마와 인증 함수가 남아 있지 않고, 테스트가 통과한다.
 
 ### Phase 3. 기능별 3계층 분리 (Jinja 화면 유지)
-기능 하나씩, 아래 순서로 옮긴다. **기능 하나가 끝날 때마다 테스트 실행 후 커밋한다.**
+기능 하나씩, 아래 순서로 옮긴다. (users가 teachers 데이터를 쓰기 때문에 teachers를 먼저 옮긴다) **기능 하나가 끝날 때마다 테스트 실행 후 커밋한다.**
 
 순서: `auth` → `teachers` → `users` → `actors` → `actor_records` → `attendance` → `compcards`
 
 각 기능마다:
-- [ ] SQL을 `repository.py`로 옮긴다. **SQL 문장은 바꾸지 않는다.**
-- [ ] 비즈니스 규칙과 권한 판단을 `service.py`로 옮긴다.
-- [ ] 라우트는 `router.py`(`APIRouter`)로 옮긴다. 이 단계의 router는 **아직 Jinja 템플릿을 반환해도 된다.** 화면이 그대로 동작하게 하는 것이 목표다.
-- [ ] 템플릿은 일단 그대로 `backend/app/templates/`에 둔다 (Phase 6에서 삭제할 예정이라 코로케이션하지 않는다).
+- [x] SQL을 `repository.py`로 옮긴다. **SQL 문장은 바꾸지 않는다.**
+- [x] 비즈니스 규칙과 권한 판단을 `service.py`로 옮긴다.
+- [x] 라우트는 `router.py`(`APIRouter`)로 옮긴다. 이 단계의 router는 **아직 Jinja 템플릿을 반환해도 된다.** 화면이 그대로 동작하게 하는 것이 목표다.
+- [x] 템플릿은 일단 그대로 `backend/app/templates/`에 둔다 (Phase 6에서 삭제할 예정이라 코로케이션하지 않는다).
 
 `actor_records` 참고: 5종 기록은 모양이 비슷하다. 필드가 같은 부분만 공통 헬퍼로 묶고, 필드가 다르면 억지로 하나의 제네릭으로 합치지 않는다.
 
-`compcards` 참고: LibreOffice 호출을 `pdf_convert.py` 하나로 통합하고, 기존 `services/pdf_convert.py`(미사용)는 삭제한다. soffice 실행 경로는 환경변수로 받는다.
+`compcards` 참고: 호출되지 않던 PPT 병합 함수(`merge_pptx_files`)는 삭제했다. LibreOffice 호출을 `pdf_convert.py` 하나로 통합하고, 기존 `services/pdf_convert.py`(미사용)는 삭제한다. soffice 실행 경로는 환경변수로 받는다.
 
-- [ ] **완료 조건**: main.py가 앱 생성과 라우터 등록만 남아 100줄 이하이고, 테스트가 통과하며, 화면 동작이 기존과 같다.
+- [x] **완료 조건**: main.py가 앱 생성과 라우터 등록만 남아 100줄 이하이고, 테스트가 통과하며, 화면 동작이 기존과 같다.
 
 ### Phase 4. JSON API 추가
 - [ ] 각 기능에 `schemas.py`(Pydantic)를 만든다.
