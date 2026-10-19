@@ -1,17 +1,23 @@
-version: "3.8"
-
 services:
-  actor_db:
+  backend:
     build: ./backend
     container_name: actor_db
-    ports:
-      - "8000:8000"
     # .env.example을 복사해서 .env를 만들어야 한다 (SECRET_KEY 필수)
     env_file:
       - .env
     environment:
       STORAGE_DIR: /storage   # DB, 업로드 파일, 병합 PDF
     volumes:
-      - ./backend:/app
       - ./storage:/storage
+    expose:
+      - "8000"                # 외부로 열지 않는다. frontend(nginx)가 프록시한다
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: actor_db_web
+    ports:
+      - "${HTTP_PORT:-8000}:80"
+    depends_on:
+      - backend
     restart: always

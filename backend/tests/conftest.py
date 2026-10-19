@@ -5,7 +5,6 @@
 앱을 불러오는 방법(load_app)만 단계별로 바뀌고, 테스트 본문은 바뀌지 않아야 한다.
 """
 import os
-import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -24,7 +23,6 @@ def load_app(workdir: Path):
     # 설정은 import 시점에 환경변수에서 읽으므로 import 전에 지정한다.
     os.environ["STORAGE_DIR"] = str(workdir / "storage")
     os.environ["DB_PATH"] = str(workdir / "actors.db")
-    os.environ["STATIC_DIR"] = str(workdir / "static")
     os.environ["SECRET_KEY"] = "test-secret"
     sys.path.insert(0, str(BACKEND_DIR))
 
@@ -38,20 +36,12 @@ def load_app(workdir: Path):
 
 @pytest.fixture(scope="session")
 def workdir(tmp_path_factory):
-    d = tmp_path_factory.mktemp("app")
-    shutil.copytree(BACKEND_DIR / "app" / "static", d / "static",
-                    ignore=shutil.ignore_patterns("uploads", "merged"))
-    return d
+    return tmp_path_factory.mktemp("app")
 
 
 @pytest.fixture(scope="session")
 def app(workdir):
     return load_app(workdir)
-
-
-@pytest.fixture
-def static_dir(workdir):
-    return workdir / "static"
 
 
 @pytest.fixture
@@ -78,8 +68,8 @@ def client(app, db_path):
 def login_as(app, client):
     def _login(username: str, password: str = PASSWORD) -> TestClient:
         c = TestClient(app, raise_server_exceptions=False, follow_redirects=False)
-        r = c.post("/login", data={"username": username, "password": password})
-        assert r.status_code == 303, r.text[:300]
+        r = c.post("/api/auth/login", json={"username": username, "password": password})
+        assert r.status_code == 200, r.text[:300]
         return c
     return _login
 
@@ -107,21 +97,21 @@ def seed(login_as, db):
     admin = login_as("admin", "1234")
 
     for username, role in [("staff1", "staff"), ("teacher1", "teacher"), ("teacher2", "teacher")]:
-        r = admin.post("/admin/users/new", data={
+        r = admin.post("/api/users", json={
             "username": username,
             "password": PASSWORD,
             "password_confirm": PASSWORD,
             "display_name": username,
             "role": role,
         })
-        assert r.status_code == 303, r.text[:300]
+        assert r.status_code == 201, r.text[:300]
 
     user_ids = {row["username"]: row["id"] for row in db("SELECT id, username FROM users")}
 
     def create_actor(**fields) -> int:
-        r = admin.post("/actors/new", data=fields)
-        assert r.status_code == 303, r.text[:300]
-        return int(r.headers["location"].rsplit("/", 1)[1])
+        r = admin.post("/api/actors", data=fields)
+        assert r.status_code == 201, r.text[:300]
+        return r.json()["id"]
 
     assigned = create_actor(
         name="배정배우", gender="여자", birth_year="1995", height_cm="165",
@@ -132,11 +122,12 @@ def seed(login_as, db):
         phone_last4="5678",
     )
 
-    admin.post(f"/admin/teachers/{user_ids['teacher1']}/lesson/add",
-               data={"lesson_name": "연기반", "lesson_days": ALL_DAYS})
-    lesson_id = db("SELECT id FROM teacher_lessons")[0]["id"]
-    admin.post(f"/admin/teachers/lesson/{lesson_id}/actors/save",
-               data={"actor_ids": [str(assigned)]})
+    r = admin.post(f"/api/teachers/{user_ids['teacher1']}/lessons",
+                   json={"lesson_name": "연기반", "lesson_days": ALL_DAYS})
+    assert r.status_code == 201, r.text[:300]
+    lesson_id = r.json()["id"]
+    r = admin.put(f"/api/teachers/lessons/{lesson_id}/actors", json={"actor_ids": [assigned]})
+    assert r.status_code == 204, r.text[:300]
 
     return SimpleNamespace(
         admin=admin,
@@ -152,14 +143,5 @@ def seed(login_as, db):
 
 
 def assert_denied(r):
-    """
-    거부된 요청인지 확인한다.
-    현재 코드는 HTTPException을 500으로 바꿔 버리므로(docs/found-issues.md #1)
-    상태 코드를 특정하지 않고 '성공하지 않았음'만 확인한다.
-    """
-    assert r.status_code >= 400, (r.status_code, r.text[:300])
-
-
-def assert_login_alert(r):
-    assert r.status_code == 200
-    assert "로그인이 필요합니다." in r.text
+    """거부된 요청(401/403)인지 확인한다."""
+    assert r.status_code in (401, 403), (r.status_code, r.text[:300])

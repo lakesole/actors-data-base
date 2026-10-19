@@ -4,20 +4,10 @@ from app.core.database import transaction
 from app.core.errors import BadRequest, FormError, NotFound
 from app.core.security import hash_password
 from app.core.validators import now_str
-from app.features.actors import service as actors_service
 from app.features.teachers import service as teachers_service
 from app.features.users import repository
 
 ROLES = ["admin", "staff", "teacher"]
-
-
-async def get_admin_page_data(db: aiosqlite.Connection) -> dict:
-    """계정/선생님 관리 화면에 필요한 데이터."""
-    return {
-        "users": await repository.list_users(db),
-        "teacher_rows": await teachers_service.get_teacher_management_rows(db),
-        "all_actors": await actors_service.list_actors_simple(db),
-    }
 
 
 async def _get_user_or_404(db: aiosqlite.Connection, user_id: int) -> dict:
@@ -79,11 +69,6 @@ async def set_active(db: aiosqlite.Connection, current_user: dict, user_id: int,
 
     async with transaction(db):
         await repository.set_active(db, user_id, 1 if is_active else 0)
-
-
-async def toggle_active(db: aiosqlite.Connection, current_user: dict, user_id: int):
-    target = await _get_user_or_404(db, user_id)
-    await set_active(db, current_user, user_id, not int(target["is_active"]) == 1)
 
 
 async def change_role(db: aiosqlite.Connection, current_user: dict, user_id: int, role: str):

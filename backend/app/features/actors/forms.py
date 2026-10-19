@@ -1,4 +1,4 @@
-"""배우 등록/수정 multipart 폼을 ActorForm으로 받는 의존성. 화면 router와 api가 같이 쓴다."""
+"""배우 등록/수정 multipart 폼을 ActorForm으로 받는 의존성. create/update API가 같이 쓴다."""
 from fastapi import Form
 
 from app.features.actors.service import ActorForm

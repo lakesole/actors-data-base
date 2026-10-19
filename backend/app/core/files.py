@@ -1,4 +1,4 @@
-"""업로드 파일 저장, 썸네일, 삭제. 공개 URL(/static/...)과 실제 경로를 변환한다."""
+"""업로드 파일 저장, 썸네일, 삭제. 공개 URL(/media/uploads/...)과 실제 경로를 변환한다."""
 import io
 import os
 import uuid
@@ -8,9 +8,11 @@ from typing import List, Union
 from fastapi import UploadFile
 from PIL import Image, ImageOps
 
-from app.core.config import APP_DIR, MERGED_DIR, STATIC_DIR, UPLOAD_DIR
+from app.core.config import APP_DIR, LEGACY_UPLOAD_DIR, MERGED_DIR, UPLOAD_DIR
 
 UPLOAD_URL_PREFIX = "/media/uploads/"
+
+LEGACY_UPLOAD_URL_PREFIX = "/static/uploads/"
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -24,10 +26,9 @@ def url_to_fs_path(url: str) -> str:
     """공개 URL을 실제 파일 경로로 바꾼다. 마이그레이션 전 URL(/static/uploads/...)도 처리한다."""
     if url.startswith(UPLOAD_URL_PREFIX):
         return str(UPLOAD_DIR / url[len(UPLOAD_URL_PREFIX):])
-    rel = url.lstrip("/")
-    if rel.startswith("static/"):
-        return str(STATIC_DIR / rel[len("static/"):])
-    return str(APP_DIR / rel)
+    if url.startswith(LEGACY_UPLOAD_URL_PREFIX):
+        return str(LEGACY_UPLOAD_DIR / url[len(LEGACY_UPLOAD_URL_PREFIX):])
+    return str(APP_DIR / url.lstrip("/"))
 
 
 def upload_url(filename: str) -> str:

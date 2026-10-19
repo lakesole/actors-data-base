@@ -199,11 +199,6 @@ async def list_actors_simple(db: aiosqlite.Connection) -> list[dict]:
     return await repository.list_actors_simple(db)
 
 
-async def get_teacher_choices(db: aiosqlite.Connection) -> list[dict]:
-    """배우 등록/수정 화면의 담당 선생님 선택지."""
-    return await teachers_service.get_active_teachers(db)
-
-
 # ---------- 상세 ----------
 
 async def get_detail_data(db: aiosqlite.Connection, user: dict | None, actor_id: int, tab: str) -> dict | None:

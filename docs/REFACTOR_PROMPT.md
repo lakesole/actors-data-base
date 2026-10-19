@@ -91,8 +91,7 @@ Actor_db2/
 │           ├── teachers/            # 강사 프로필, 수업(lesson), 수업-배우 배정
 │           ├── actors/              # 배우 목록/상세/생성/수정/삭제, 영상
 │           │   ├── api.py           # JSON API (/api/actors/...)
-│           │   ├── router.py        # 화면 (Jinja). Phase 6에서 삭제
-│           │   ├── forms.py         # multipart 폼 → ActorForm (api, router 공용)
+│           │   ├── forms.py         # multipart 폼 → ActorForm (create/update API 공용)
 │           │   ├── service.py
 │           │   ├── repository.py
 │           │   ├── schemas.py
@@ -251,7 +250,7 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
   - [x] compcards
 - [x] Phase 4. JSON API 추가
 - [x] Phase 5. 프론트엔드 구축
-- [ ] Phase 6. Jinja 제거와 배포
+- [ ] Phase 6. Jinja 제거와 배포 (코드 완료, 운영 배포 확인 남음)
 
 > 단계를 끝내면 해당 단계의 체크박스와 위 진행 현황을 함께 체크한다.
 
@@ -330,12 +329,42 @@ async def insert_class_log(db, actor_id, meet_date, content, created_at) -> int:
   → `frontend/e2e/smoke.mjs`(Playwright)로 비로그인/admin/teacher/키오스크 19개 시나리오를 실제 브라우저에서 확인했다. staff 권한은 API 테스트로 확인했다.
 
 ### Phase 6. Jinja 제거와 배포
-- [ ] 백엔드에서 Jinja 라우트, `templates/`, `static/`, `jinja2` 의존성을 삭제한다. 백엔드에는 `/api`와 `/media`만 남는다.
-- [ ] `frontend/Dockerfile`(빌드 → nginx)과 `nginx.conf`를 작성한다.
-- [ ] docker-compose를 `backend`, `frontend`(nginx) 두 서비스로 구성한다. `storage/`는 backend에 볼륨으로 연결한다. LibreOffice가 backend 이미지에 포함되는지, 별도 컨테이너인지 현재 NAS 구성을 확인하고 맞춘다.
-- [ ] README에 개발 실행 방법(backend, frontend 각각)과 배포 방법을 정리한다.
+
+**0. 시작 전 확인 (사용자 확인 필요)**
+- [ ] 운영 DB 백업(`actors.db.bak-*`)과 `storage/` 백업이 있는지 확인한다. 롤백은 백업 복원 + 이전 브랜치/이미지로 되돌리는 것이다.
+- [ ] 운영 데이터에 `scripts/migrate_uploads_to_media.py`가 실행되었는지 확인한다 (미리보기 → 백업 확인 → `--apply`). **실행하지 않은 채 `static/`을 지우면 DB의 `/static/uploads/...` 링크가 전부 깨진다.** 이 스크립트는 에이전트가 운영 DB에 직접 실행하지 않는다.
+- [x] LibreOffice는 **backend 이미지에 포함**한다 (별도 컨테이너 없음). 한글 PPT 변환을 위해 CJK 폰트도 같이 설치한다.
+
+**1. 백엔드 정리**
+- [x] 기능별 `router.py`(Jinja 화면)를 모두 지우고 `api.py`만 남긴다. `templates/`, `static/`, `core/templating.py`, `core/urls.py`, `jinja2` 의존성을 삭제한다. `/where` 디버그 라우트도 삭제한다. 백엔드에는 `/api`, `/media`(와 OpenAPI `/docs`)만 남는다.
+- [x] `core/errors.py`에서 HTML(`alert()`) 응답과 화면용 상태 코드 변환을 삭제한다. (`docs/found-issues.md` #1이 함께 해소된다.)
+- [x] 키오스크 미들웨어에서 화면 경로(리다이렉트)를 지우고 `/api/*`만 다룬다. 옛 화면 경로 `RELEASE_PATHS`(`/`, `/attendance`)는 대응하는 API(`GET /api/actors`, `GET /api/attendance` 정확히 일치)로 바꿔서, 키오스크 화면을 벗어나 목록/출석부로 가면 모드가 풀리는 기존 동작을 유지한다.
+- [x] 화면 전용으로만 쓰이던 service/repository 함수가 남아 있으면 삭제한다.
+- [x] 테스트: 화면(폼) 기준 테스트와 `conftest.py`의 화면 로그인/생성 fixture를 API 기준으로 바꾼다. 화면 테스트에만 있던 시나리오(입력값 정리, 권한, 키오스크 잠금/해제 등)는 API 테스트로 옮긴 뒤에 화면 테스트를 지운다. 테스트 수가 줄어들면 어떤 시나리오가 어디로 옮겨졌는지 보고한다.
+
+**2. 프론트엔드/배포**
+- [x] `frontend/Dockerfile`(node 빌드 → nginx)과 `nginx.conf`를 작성한다. nginx 필수 설정:
+  - SPA 라우팅: `try_files $uri /index.html`
+  - `/api`, `/media`를 backend 컨테이너로 프록시
+  - `client_max_body_size`: 사진, 컴카드, 연기영상 multipart 업로드가 막히지 않을 크기 (기본 1MB로는 업로드가 실패한다)
+  - `proxy_read_timeout`: PDF 병합/변환처럼 오래 걸리는 요청용
+  - `X-Forwarded-For`, `X-Forwarded-Proto`, `Host` 헤더 전달. HTTPS로 서비스하면 `.env`의 `SESSION_HTTPS_ONLY=true`
+- [x] docker-compose를 `backend`, `frontend`(nginx) 두 서비스로 구성한다. 외부로 여는 포트는 frontend뿐이고, backend는 내부 네트워크에만 연다. `storage/`는 backend에 볼륨으로 연결하고, 코드 bind mount(`./backend:/app`)는 제거한다 (이미지에 코드가 들어 있어야 한다).
+- [x] README에 개발 실행 방법(backend, frontend 각각), 배포 방법, 롤백 방법을 정리한다.
+
+**3. 검증**
+- [x] `docs/routes-before.md`의 모든 항목에 대응하는 API가 있는지 대조한다 (누락 목록 보고).
+- [x] 검색 결과가 모두 0건이다: `grep -rE "HTMLResponse|TemplateResponse|RedirectResponse|jinja|Jinja" backend/app` (문서 주석 제외).
+- [x] `pytest` 전체 통과, `npm run build`(타입 검사 포함) 통과, `npm run e2e` 통과.
+- [ ] `docker compose build`가 성공하고, 가능하면 `docker compose up`으로 nginx 경유 로그인/업로드/PDF 다운로드를 확인한다.
 
 - [ ] **완료 조건**: `docker compose up` 하나로 전체가 뜨고, 백엔드 코드에 HTML을 반환하는 곳이 없다.
+
+> **남은 확인 (사용자 작업)**: 위 `[ ]` 항목은 에이전트가 할 수 없다. 운영 NAS에서 직접 한다.
+> 1. 운영 `storage/` 백업 → `scripts/migrate_uploads_to_media.py` 미리보기/`--apply`
+> 2. `docker compose up -d --build` 후 nginx 경유로 로그인, 사진 업로드, 컴카드 PDF 다운로드, PPT 컴카드 미리보기(LibreOffice) 확인
+> 3. 위 확인이 끝나면 완료 조건 체크박스를 체크한다.
+> (이번 세션에서는 Docker 데몬이 꺼져 있어 이미지 빌드를 실행하지 못했다. nginx.conf도 문법 검사를 하지 못했다.)
 
 ---
 ## 7. 작업 규칙 (에이전트용)
